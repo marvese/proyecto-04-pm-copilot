@@ -161,7 +161,7 @@ Ver `docs/DEFINITION_OF_DONE.md` para el checklist completo.
 | Groq | Por configurar | `GROQ_API_KEY` en `.env` — tier gratuito disponible en console.groq.com |
 | Google Gemini | Por configurar | `GEMINI_API_KEY` en `.env` — tier gratuito en aistudio.google.com |
 | Ollama local | Local | `http://localhost:11434`, modelos: `llama3`, `mistral`, `nomic-embed-text` |
-| Jira | Por configurar | — |
+| Jira | Activo | `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` en `.env` — proyecto `PMCP` creado, 9 épicas, 37 historias |
 | GitHub | Por configurar | — |
 | Railway | Por configurar | — |
 

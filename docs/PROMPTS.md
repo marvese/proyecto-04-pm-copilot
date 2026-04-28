@@ -156,7 +156,41 @@ Usa la API REST /wiki/rest/api/content con autenticación básica (email + API t
 
 ## 3. Prompts de Desarrollo Backend
 
-*[Añadir prompts de desarrollo backend aquí]*
+### 3.1 Arranque del Proyecto — Estructura Hexagonal Completa (Backend + Frontend)
+
+**Fecha**: 2026-04-28  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: Estructura completa de carpetas y ficheros stub del proyecto siguiendo arquitectura hexagonal: dominio, puertos, adaptadores, casos de uso, API FastAPI, frontend React/TypeScript y tests espejo.  
+**Ficheros generados/afectados**:
+- `backend/src/domain/entities/` — Task, Project, Sprint, Estimation, Report, KnowledgeChunk
+- `backend/src/domain/ports/` — 10 puertos abstractos (LLMPort, EmbeddingPort, VectorStorePort, TaskRepositoryPort, ProjectRepositoryPort, SprintRepositoryPort, JiraPort, ConfluencePort, GitHubPort, DocumentGeneratorPort)
+- `backend/src/domain/services/` — EstimationService, PlanningService, RAGService
+- `backend/src/application/use_cases/` — 9 use cases stub
+- `backend/src/application/commands/` — 4 commands/DTOs
+- `backend/src/adapters/primary/api/` — 8 FastAPI routers
+- `backend/src/adapters/primary/websocket/` — chat WebSocket handler
+- `backend/src/adapters/secondary/` — LLM (Claude, Ollama, Groq, Gemini), Embedding, ChromaDB, PostgreSQL, Jira, Confluence, GitHub
+- `backend/src/infrastructure/` — LLMRouter, TaskClassifier, RAG pipeline, Settings, Container, main.py
+- `backend/pyproject.toml` + `backend/alembic/` + `backend/tests/`
+- `frontend/src/` — tipos, servicios, hooks, componentes, páginas
+- `frontend/` — vite.config.ts, tsconfig.json, package.json, manifest.json PWA
+- `CHANGELOG.md` — creado
+
+**Prompt**:
+
+```
+Lee CLAUDE.md, docs/ARCHITECTURE.md, docs/ADR-001-stack.md y docs/FUNCTIONAL_SPEC.md antes de empezar. Vamos a arrancar el desarrollo del PM Copilot siguiendo la arquitectura hexagonal definida. El primer paso es crear la estructura completa de carpetas y ficheros stub del proyecto, tanto para el backend (Python/FastAPI) como para el frontend (React/TypeScript). No implementes lógica todavía, solo la estructura con stubs documentados que reflejen la arquitectura hexagonal: dominio, puertos, adaptadores, casos de uso y API. Incluye también la estructura de tests espejando el backend. Cuando termines activa el skill docs-updater para actualizar CLAUDE.md si es necesario. Activa también el skill prompt-librarian para registrar este prompt en docs/PROMPTS.md con el contexto "Prompt de arranque del desarrollo — creación de estructura del proyecto" y publícalo en Confluence usando scripts/publish_prompts.py.
+```
+
+**Notas**:
+- Prompt de arranque de desarrollo. Funcionó en una sola pasada generando ~60 ficheros.
+- El modelo leyó los 4 documentos de referencia antes de generar código, produciendo output coherente con la arquitectura definida.
+- Los stubs Python usan `raise NotImplementedError` con `# TODO:` detallando qué implementar — facilita que la IA retome el trabajo en sesiones futuras.
+- Los stubs TypeScript usan `throw new Error("Not implemented")` con el mismo patrón.
+- La dependencia `LLMRouter → tenacity` está reflejada en los stubs con decoradores `@retry` importados, lista para implementar.
+- Reutilizable en: cualquier proyecto nuevo con arquitectura hexagonal — cambiar entidades de dominio y puertos según el dominio de negocio.
+- Variación sugerida: añadir `docker-compose.yml` y `.env.example` al mismo prompt.
+- No usar cuando: el proyecto ya tiene código existente que podría sobrescribirse.
 
 ---
 
@@ -180,7 +214,99 @@ Usa la API REST /wiki/rest/api/content con autenticación básica (email + API t
 
 ## 7. Prompts de Integración
 
-*[Añadir prompts de integraciones (Jira, Confluence, GitHub) aquí]*
+### 7.1 Setup Jira — Crear Proyecto, Épicas e Historias desde Script Python
+
+**Fecha**: 2026-04-28  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: Script `scripts/setup_jira.py` que crea el proyecto Jira PMCP (Scrum), 9 épicas y 37 historias del backlog completo del proyecto, con vinculación épica↔historia y ejecución idempotente.  
+**Ficheros generados/afectados**: `scripts/setup_jira.py`
+
+**Prompt**:
+
+```
+Crea `scripts/setup_jira.py` que:
+
+1. Lee del `.env`: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`
+
+2. Primero crea el proyecto Jira:
+   - Nombre: "PM Copilot"
+   - Clave: "PMCP"
+   - Tipo: Scrum
+   - Lead: el usuario autenticado
+
+3. Luego crea las épicas e historias siguiendo esta estructura exacta:
+
+ÉPICA 1 — Infraestructura base
+  - Crear docker-compose con PostgreSQL + ChromaDB
+  - DDL de tablas (tasks, projects, sprints, estimations)
+  - Crear .env.example completo
+  - Script de arranque y verificación del entorno
+
+ÉPICA 2 — LLM Core
+  - Implementar ClaudeAdapter (texto + streaming)
+  - Implementar LLMRouter con fallback y tenacity
+  - Tests unitarios del router
+  - Implementar OllamaLLMAdapter para modo local
+
+ÉPICA 3 — Primer caso de uso vertical: EstimateTask
+  - Implementar EstimationService en dominio
+  - Implementar EstimateTask use case
+  - Endpoint REST /estimate funcional
+  - Tests de integración del caso de uso
+
+ÉPICA 4 — Chat con streaming
+  - Implementar QueryProjectStatus use case
+  - WebSocket handler con streaming real
+  - useCopilotChat hook en frontend
+  - Componente Chat funcional conectado al backend
+
+ÉPICA 5 — RAG y base de conocimiento
+  - Implementar OllamaEmbeddingAdapter
+  - Implementar ChromaDBAdapter
+  - IndexDocuments use case
+  - QueryKnowledge use case
+  - Tests de integración RAG
+
+ÉPICA 6 — Persistencia
+  - Implementar PostgreSQLTaskAdapter
+  - Implementar PostgreSQLProjectAdapter + Sprint
+  - Migraciones con Alembic
+  - Tests de repositorios
+
+ÉPICA 7 — Integraciones externas
+  - Implementar JiraAdapter (sync bidireccional)
+  - Implementar ConfluenceAdapter (publicar reportes)
+  - Implementar GitHubAdapter (leer PRs/commits)
+  - SyncJira use case
+
+ÉPICA 8 — Frontend completo
+  - Dashboard con métricas del proyecto
+  - Página de Tasks conectada al backend
+  - Página de Reports con generación bajo demanda
+  - PWA: manifest + service worker
+
+ÉPICA 9 — Calidad y despliegue
+  - Configurar pytest con cobertura mínima 80%
+  - GitHub Actions: CI con tests + lint
+  - Dockerfile para backend y frontend
+  - Documentación de despliegue en Confluence
+
+4. Cada épica: tipo "Epic", con descripción breve
+   Cada historia: tipo "Story", vinculada a su épica con el campo "Epic Link"
+
+5. Al final muestra resumen: épicas creadas, historias creadas, URLs de acceso
+
+Usa `requests` y `python-dotenv`. Añade las dependencias a `requirements-scripts.txt`.
+```
+
+**Notas**:
+- El script descubre dinámicamente los campos custom de Jira (`customfield_10014` para Epic Link, `customfield_10011` para Epic Name) en lugar de hardcodearlos — funciona en cualquier tenant.
+- Estrategia de vinculación en 3 capas: `customfield_10014` → `parent` → Agile API (`/rest/agile/1.0/epic/{key}/issue`). Esto cubre proyectos clásicos, next-gen y configuraciones mixtas.
+- La búsqueda de idempotencia usaba `GET /rest/api/3/search` (deprecated desde 2024, error 410). Se corrigió a `GET /rest/api/3/search/jql` en la misma sesión.
+- El campo de descripción de épicas requiere formato ADF (Atlassian Document Format), no texto plano — se implementó la función `_adf()` como wrapper.
+- Reutilizable en: cualquier proyecto que necesite backlog inicial en Jira. Cambiar el diccionario `BACKLOG` y las constantes `PROJECT_KEY`/`PROJECT_NAME`.
+- Variación sugerida: añadir estimación de story points a cada historia en el diccionario `BACKLOG` y pasarla al campo `story_points` en la creación.
+- No usar cuando: el proyecto Jira ya tiene issues — la búsqueda por título exacto protege contra duplicados, pero renombrar historias y re-ejecutar sí crearía duplicados.
 
 ---
 
