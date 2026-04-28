@@ -192,6 +192,68 @@ Lee CLAUDE.md, docs/ARCHITECTURE.md, docs/ADR-001-stack.md y docs/FUNCTIONAL_SPE
 - Variación sugerida: añadir `docker-compose.yml` y `.env.example` al mismo prompt.
 - No usar cuando: el proyecto ya tiene código existente que podría sobrescribirse.
 
+### 3.2 Infraestructura Local — Docker Compose, DDL y Makefile
+
+**Fecha**: 2026-04-28  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: Entorno de desarrollo local completo: docker-compose.yml (PostgreSQL 16 + ChromaDB + pgAdmin), DDL con 7 tablas y 26 índices, Makefile con comandos operacionales, .env.example completo.  
+**Ficheros generados/afectados**:
+- `docker-compose.yml` — PostgreSQL 16-alpine, ChromaDB latest, pgAdmin (profile tools), red pmcopilot-net
+- `scripts/db_init.sql` — 7 tablas, 26 índices, trigger set_updated_at
+- `Makefile` — targets up/down/db-init/logs/db-shell/tools-up/db-reset/ps/help
+- `.env.example` — variables PostgreSQL, ChromaDB, pgAdmin, LLM_MODE, SECRET_KEY
+- `.env` — variables POSTGRES_* y CHROMADB_* añadidas al fichero existente
+
+**Prompt**:
+
+```
+Crea docker-compose.yml en la raíz del proyecto con:
+
+- PostgreSQL 16:
+  - Variables desde .env (POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_PORT)
+  - Healthcheck con pg_isready
+  - Volumen persistente postgres_data
+  - Puerto mapeado al host
+
+- ChromaDB latest:
+  - Puerto 8001
+  - Volumen persistente chroma_data
+  - Variable ANONYMIZED_TELEMETRY=false
+
+- pgAdmin (profile "tools", opcional):
+  - Puerto 5050
+  - Variables PGADMIN_EMAIL, PGADMIN_PASSWORD desde .env
+
+- Red interna "pmcopilot-net" para todos los servicios
+
+Crea scripts/db_init.sql con DDL completo para:
+  - tasks (id, title, description, status, priority, estimation_points, 
+    project_id, sprint_id, created_at, updated_at)
+  - projects (id, name, description, jira_key, created_at, updated_at)
+  - sprints (id, name, project_id, start_date, end_date, status, created_at)
+  - estimations (id, task_id, points, reasoning, confidence, model_used, created_at)
+  - knowledge_chunks (id, content, embedding_id, source, metadata jsonb, created_at)
+
+Todas las tablas con UUID como PK, índices en foreign keys y campos de búsqueda frecuente.
+
+Actualiza .env.example con todas las variables nuevas.
+
+Añade al Makefile:
+  - make up      → docker-compose up -d
+  - make down    → docker-compose down
+  - make db-init → ejecuta db_init.sql contra PostgreSQL
+  - make logs    → docker-compose logs -f
+```
+
+**Notas**:
+- El truco clave del `db-init`: `docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER"'  < archivo.sql` — ejecuta psql dentro del contenedor usando sus variables de entorno nativas, y recibe el SQL del host por stdin.
+- El Makefile usa `-include .env` + `export` para inyectar variables en targets que necesiten acceder al host (ej. `db-shell`), pero para `db-init` el contenedor ya tiene las variables de entorno propias.
+- El `POSTGRES_PORT` faltaba en el `.env` existente y causó que el contenedor arrancara con credenciales vacías; se detectó en la primera ejecución y se corrigió añadiéndolo al `.env`.
+- El índice único parcial `WHERE status = 'active'` en sprints elimina lógica de validación en capa de aplicación.
+- Reutilizable en: cualquier proyecto FastAPI + PostgreSQL + ChromaDB. Cambiar nombres de tablas y columnas según el dominio.
+- Variación sugerida: añadir un `docker-compose.override.yml` para producción (Railway) vs desarrollo local.
+- No usar cuando: el entorno usa Podman (hay incompatibilidades en el formato de healthcheck).
+
 ---
 
 ## 4. Prompts de Desarrollo Frontend

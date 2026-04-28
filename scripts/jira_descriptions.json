@@ -1,0 +1,838 @@
+{
+  "epics": [
+    {
+      "key": "PMCP-1",
+      "title": "Infraestructura base",
+      "description": "Entorno de desarrollo local reproducible con PostgreSQL 16 y ChromaDB levantados via Docker Compose, schema DDL completo y comandos operacionales en Makefile. Base sobre la que se construyen todos los demás epics.",
+      "acceptance_criteria": [
+        "make up arranca PostgreSQL y ChromaDB sin errores",
+        "make db-init aplica todos los DDL sin errores en una BD vacía",
+        "make db-init es idempotente (CREATE TABLE IF NOT EXISTS)",
+        "Los 7 contenedores pasan healthcheck en menos de 30 segundos",
+        ".env.example contiene todas las variables necesarias para arrancar el proyecto"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-2",
+          "title": "Crear docker-compose con PostgreSQL + ChromaDB",
+          "description": "Fichero docker-compose.yml en la raíz del proyecto con tres servicios: postgres (image: postgres:16-alpine), chromadb (image: chromadb/chroma:latest) y pgadmin (image: dpage/pgadmin4:latest, profile 'tools'). Red interna pmcopilot-net. Volúmenes persistentes postgres_data, chroma_data y pgadmin_data. PostgreSQL con healthcheck CMD-SHELL pg_isready. Variables de entorno desde .env: POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_PORT para postgres; PGADMIN_EMAIL y PGADMIN_PASSWORD para pgadmin. ChromaDB con ANONYMIZED_TELEMETRY=false y puerto 8001→8000. Puerto PostgreSQL mapeado como ${POSTGRES_PORT:-5432}:5432.\n\nFichero: docker-compose.yml\nEstado: completado.",
+          "acceptance_criteria": [
+            "sg docker -c 'docker compose up -d' arranca los dos servicios sin errores",
+            "pmcopilot-postgres aparece como 'healthy' en docker compose ps",
+            "pmcopilot-chroma escucha en 0.0.0.0:8001",
+            "make tools-up levanta pgadmin en http://localhost:5050",
+            "Los volúmenes persisten entre make down / make up"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "La IA genera el compose en un turno. El único back-and-forth real fue el bug de variables vacías en .env (detectado al levantar los contenedores): 0.5h incluye diagnóstico y corrección."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "Un senior tarda ~30 min en escribirlo pero necesita verificar la sintaxis del healthcheck, el trick de POSTGRES_PORT con valor por defecto y testear que los volúmenes persisten. Con alguna búsqueda en docs: 2h."
+          }
+        },
+        {
+          "key": "PMCP-3",
+          "title": "DDL de tablas (tasks, projects, sprints, estimations)",
+          "description": "Fichero scripts/db_init.sql ejecutado con 'make db-init'. Crea 7 tablas con UUID PK (gen_random_uuid()): projects (name UNIQUE, jira_project_key, confluence_space_key, github_repo), sprints (FK→projects CASCADE, status CHECK IN ('planned','active','completed'), índice único parcial WHERE status='active' para garantizar un solo sprint activo por proyecto), tasks (FK→projects+sprints, status/priority/type/jira_sync_status con CHECK, tags TEXT[], GIN trigram index en title via pg_trgm), estimations (FK→tasks CASCADE, confidence FLOAT 0.0-1.0, breakdown/similar_tasks/risks JSONB), knowledge_chunks (embedding_id TEXT referencia a ChromaDB, source CHECK IN ('confluence','jira','github','conversation'), UNIQUE en project_id+document_id+section), chat_sessions (FK→projects), chat_messages (FK→sessions, role CHECK IN ('user','assistant')). Trigger set_updated_at() en tasks y projects. Extensión pg_trgm activada.\n\nFichero: scripts/db_init.sql\nEstado: completado.",
+          "acceptance_criteria": [
+            "\\dt en psql lista las 7 tablas: projects, sprints, tasks, estimations, knowledge_chunks, chat_sessions, chat_messages",
+            "\\di lista los 26 índices incluyendo idx_tasks_title_trgm (GIN) y uq_sprints_one_active_per_project (parcial)",
+            "INSERT de tarea con status='invalid' falla con CHECK constraint",
+            "INSERT de segundo sprint activo en el mismo proyecto falla con UNIQUE violation",
+            "UPDATE en tasks actualiza updated_at automáticamente via trigger"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "El DDL se genera en un turno a partir de las entidades del dominio ya definidas. La IA conoce las mejores prácticas PG16 (gen_random_uuid, índices parciales, pg_trgm). Verificación con \\dt y \\di: incluida."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "El schema tiene decisiones no triviales: índice parcial para sprint activo, JSONB vs columnas para breakdown, GIN trigram vs tsvector. Un senior las toma bien pero necesita tiempo para pensar y documentarlas."
+          }
+        },
+        {
+          "key": "PMCP-4",
+          "title": "Crear .env.example completo",
+          "description": "Fichero .env.example en la raíz del proyecto documentando todas las variables de entorno necesarias, agrupadas por servicio: PostgreSQL (POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_PORT, DATABASE_URL), ChromaDB (CHROMADB_HOST, CHROMADB_PORT), pgAdmin (PGADMIN_EMAIL, PGADMIN_PASSWORD), LLM providers (ANTHROPIC_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, OLLAMA_BASE_URL, LLM_MODE), Confluence (CONFLUENCE_BASE_URL, CONFLUENCE_URL, CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN, CONFLUENCE_SPACE_KEY), Jira (JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN), GitHub (GITHUB_TOKEN), App (SECRET_KEY, DEBUG). El Makefile usa -include .env + export para inyectar variables.\n\nFichero: .env.example\nEstado: completado.",
+          "acceptance_criteria": [
+            ".env.example contiene todas las variables que lee backend/src/infrastructure/config/settings.py",
+            "Copiar .env.example a .env y rellenar POSTGRES_* + ANTHROPIC_API_KEY es suficiente para arrancar el backend en modo local",
+            "El fichero .env real no está en git (verificado en .gitignore)"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.25,
+            "notes": "Tarea de documentación pura. La IA genera el fichero a partir de settings.py en un solo turno. Sin lógica."
+          },
+          "estimation_human": {
+            "hours": 0.5,
+            "notes": "El senior revisa settings.py, lista todas las variables y añade comentarios. Tedioso pero mecánico."
+          }
+        },
+        {
+          "key": "PMCP-5",
+          "title": "Script de arranque y verificación del entorno",
+          "description": "Script scripts/verify_env.py que comprueba que todos los servicios están levantados y configurados correctamente. Verificaciones: (1) leer variables de .env y validar que las obligatorias no estén vacías ni con valores placeholder, (2) conectar a PostgreSQL via asyncpg y ejecutar SELECT 1, (3) verificar que existen las 7 tablas esperadas, (4) conectar a ChromaDB via HTTP GET http://CHROMADB_HOST:CHROMADB_PORT/api/v1/heartbeat, (5) si LLM_MODE != 'local', verificar ANTHROPIC_API_KEY no vacío; si LLM_MODE == 'local', verificar que Ollama responde en OLLAMA_BASE_URL/api/tags y que el modelo 'nomic-embed-text' está disponible. Imprime un resumen con ✓/✗ por servicio y exit code 1 si alguna verificación falla.\n\nFichero: scripts/verify_env.py\nDependencias: asyncpg, requests, python-dotenv (ya en requirements-scripts.txt)",
+          "acceptance_criteria": [
+            "python3 scripts/verify_env.py con todos los servicios OK imprime ✓ en todos los checks y exit code 0",
+            "Con PostgreSQL parado imprime ✗ en el check de BD y exit code 1",
+            "Con variable POSTGRES_PASSWORD vacía imprime aviso y exit code 1",
+            "Con Ollama sin el modelo nomic-embed-text descargado imprime aviso específico"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "Script lineal con 5 checks independientes. La IA genera el esqueleto en un turno; puede requerir un segundo para ajustar el mensaje de Ollama y el exit code correcto."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "Implica conocer las APIs de asyncpg, requests y el endpoint de Ollama /api/tags. El senior lo escribe correctamente pero necesita consultar docs de asyncpg y probar casos de error reales."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-6",
+      "title": "LLM Core",
+      "description": "Implementación de los adaptadores LLM (ClaudeAdapter, OllamaLLMAdapter) y del LLMRouter con fallback automático y circuit breaker via tenacity. El LLMRouter implementa LLMPort y es el único punto de acceso a LLMs desde la capa de aplicación.",
+      "acceptance_criteria": [
+        "ClaudeAdapter.complete() y .stream() funcionan con ANTHROPIC_API_KEY real",
+        "LLMRouter en modo LOCAL enruta todo a OllamaLLMAdapter independientemente del task_type",
+        "LLMRouter en modo HYBRID enruta REASONING → Claude, CLASSIFICATION → Groq/Ollama",
+        "Cuando Claude falla, LLMRouter hace fallback a Ollama sin propagar la excepción",
+        "Tests unitarios del router pasan con mocks (sin llamadas reales a APIs)"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-7",
+          "title": "Implementar ClaudeAdapter (texto + streaming)",
+          "description": "Implementar todos los métodos abstractos de LLMPort en backend/src/adapters/secondary/llm/claude_adapter.py. Clase: ClaudeAdapter(LLMPort). Constante DEFAULT_MODEL = 'claude-sonnet-4-6'. Constructor recibe api_key: str y model: str = DEFAULT_MODEL, instancia self._client = anthropic.AsyncAnthropic(api_key=api_key).\n\nMétodo complete(request: LLMRequest) -> LLMResponse: construir messages=[{'role':'user','content':request.prompt}], si request.system añadir system=request.system, llamar await self._client.messages.create(model, max_tokens, temperature, messages). Si request.json_mode=True añadir betas=['json-mode-2023-11-16'] si la API lo soporta. Mapear respuesta a LLMResponse(content, model, provider='anthropic', input_tokens, output_tokens).\n\nMétodo stream(request: LLMRequest) -> AsyncIterator[str]: usar async with self._client.messages.stream(...) as stream, async for text in stream.text_stream: yield text.\n\nMétodo health_check() -> bool: intentar models.list() con timeout, retornar True/False.\n\nFichero: backend/src/adapters/secondary/llm/claude_adapter.py\nDependencias: anthropic>=0.25 (en pyproject.toml), LLMPort (domain/ports/llm_port.py), LLMRequest, LLMResponse, LLMTaskType.",
+          "acceptance_criteria": [
+            "ClaudeAdapter.complete() retorna LLMResponse con provider='anthropic' y content no vacío",
+            "ClaudeAdapter.stream() es un AsyncIterator que yield tokens de texto",
+            "ClaudeAdapter.health_check() retorna True con ANTHROPIC_API_KEY válida y False con key inválida",
+            "json_mode=True en LLMRequest produce output JSON parseable",
+            "No importa nada de adapters/ ni infrastructure/ (regla hexagonal)"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Implementar 3 métodos abstractos con el SDK de Anthropic que ya está documentado. La IA conoce el SDK. El tiempo extra es por el manejo correcto de json_mode y verificar que el streaming AsyncIterator encaja con el puerto."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "El senior necesita leer la doc del SDK async de Anthropic, entender el patron messages.stream(), mapear los campos a LLMResponse y probar con ANTHROPIC_API_KEY real. Sin IA: 3h realistas."
+          }
+        },
+        {
+          "key": "PMCP-8",
+          "title": "Implementar LLMRouter con fallback y tenacity",
+          "description": "Implementar backend/src/infrastructure/llm_router/llm_router.py. Clase LLMRouter(LLMPort). Constantes del módulo: CLOUD_REASONING_TYPES = {LLMTaskType.REASONING, LLMTaskType.GENERATION_LONG} y FAST_TYPES = {LLMTaskType.CLASSIFICATION, LLMTaskType.EXTRACTION, LLMTaskType.SIMPLE_QA}.\n\nConstructor __init__(claude: LLMPort | None, groq: LLMPort | None, gemini: LLMPort | None, ollama: LLMPort, mode: LLMMode = settings.llm_mode) almacena proveedores.\n\nMétodo privado _resolve_provider(task_type: LLMTaskType) -> list[LLMPort]: si mode==LOCAL retorna [self._ollama]; si task_type in CLOUD_REASONING_TYPES candidates = [claude, gemini, ollama]; si task_type in FAST_TYPES candidates = [groq, ollama, claude]. Filtrar None. Retornar lista ordenada.\n\nMétodo complete(request: LLMRequest) decorado con @retry(retry=retry_if_exception_type(Exception), stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True): iterar _resolve_provider(request.task_type), intentar provider.complete(request), retornar en el primer éxito; si todos fallan propagar última excepción.\n\nMétodo stream(request: LLMRequest): misma lógica de resolución pero delegando stream() al primer proveedor disponible (sin retry en streaming).\n\nMétodo health_check(): True si al menos un proveedor retorna True en health_check().\n\nFichero: backend/src/infrastructure/llm_router/llm_router.py\nDependencias: tenacity (en pyproject.toml), LLMPort, LLMRequest, LLMResponse, LLMMode (settings.py), LLMTaskType.",
+          "acceptance_criteria": [
+            "_resolve_provider(REASONING) con mode=HYBRID retorna [claude, ollama] si groq es None",
+            "_resolve_provider(CLASSIFICATION) con mode=LOCAL retorna [ollama]",
+            "complete() con Claude lanzando excepción hace fallback a Ollama y retorna LLMResponse",
+            "complete() falla solo cuando todos los proveedores de la cadena fallan",
+            "tenacity reintenta hasta 3 veces antes de propagar",
+            "LLMRouter nunca importa nada de adapters/ directamente — recibe puertos por constructor"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.5,
+            "notes": "La lógica de routing es no trivial: gestionar Nones, el orden de candidatos por task_type y el retry que debe iterar proveedores (no reintentar el mismo) requiere un turno de generación más una ronda de corrección."
+          },
+          "estimation_human": {
+            "hours": 5,
+            "notes": "La lógica de fallback con tenacity requiere entender bien la diferencia entre retry (mismo provider) y fallback (siguiente provider). El senior tarda en leer docs de tenacity, diseñar _resolve_provider y escribir los tests que demuestren que el fallback funciona."
+          }
+        },
+        {
+          "key": "PMCP-9",
+          "title": "Tests unitarios del router",
+          "description": "Implementar tests en backend/tests/unit/infrastructure/test_llm_router.py y backend/tests/integration/infrastructure/test_llm_router.py. Tests unitarios con mocks de los puertos:\n\ntest_local_mode_uses_ollama_only: construir LLMRouter(claude=mock_llm, groq=mock_llm, gemini=mock_llm, ollama=mock_llm, mode=LLMMode.LOCAL), llamar complete() con task_type=REASONING, verificar que solo mock_ollama.complete fue llamado.\n\ntest_fallback_to_ollama_when_claude_fails: mock_claude.complete lanza Exception, mock_ollama.complete retorna LLMResponse válido; verificar que el resultado viene de ollama y mock_claude se llamó primero.\n\ntest_hybrid_reasoning_uses_claude_first: mode=HYBRID, task_type=REASONING, verificar que mock_claude se intenta antes que mock_ollama.\n\ntest_hybrid_classification_uses_groq_first: task_type=CLASSIFICATION, verificar que mock_groq se intenta primero.\n\ntest_health_check_true_if_one_provider_healthy: mock_claude.health_check=False, mock_ollama.health_check=True → router.health_check() == True.\n\nFichero: backend/tests/unit/infrastructure/test_llm_router.py\nFixtures usadas: mock_llm() de conftest.py (AsyncMock que retorna LLMResponse).",
+          "acceptance_criteria": [
+            "Todos los tests pasan con pytest -v sin conexión a red",
+            "test_fallback_to_ollama_when_claude_fails pasa y no lanza excepción",
+            "Cobertura de llm_router.py ≥ 90% al ejecutar estos tests",
+            "Los tests usan únicamente AsyncMock — sin llamadas reales a APIs"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "Los tests son mecánicos: construir mocks, llamar al router y hacer assert. La IA genera los 5 tests en un turno usando las fixtures ya definidas en conftest.py."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "El senior conoce pytest y AsyncMock pero necesita tiempo para pensar qué verificar exactamente en el fallback (call_count, call_order) y configurar correctamente mock_llm.complete.side_effect."
+          }
+        },
+        {
+          "key": "PMCP-10",
+          "title": "Implementar OllamaLLMAdapter para modo local",
+          "description": "Implementar backend/src/adapters/secondary/llm/ollama_llm_adapter.py. Clase OllamaLLMAdapter(LLMPort). Constructor recibe base_url: str (desde settings.ollama_base_url) y model: str (desde settings.ollama_llm_model, default 'llama3').\n\nMétodo complete(request: LLMRequest) -> LLMResponse: POST a {base_url}/api/chat con body {'model': model, 'messages': [{'role':'user','content':request.prompt}], 'stream': False, 'options': {'temperature': request.temperature, 'num_predict': request.max_tokens}}. Si request.system, añadir mensaje {'role':'system','content':request.system} al inicio. Parsear respuesta JSON y mapear a LLMResponse(content=response['message']['content'], model=model, provider='ollama', input_tokens=response.get('prompt_eval_count',0), output_tokens=response.get('eval_count',0)).\n\nMétodo stream(request: LLMRequest) -> AsyncIterator[str]: POST con stream=True, iterar líneas JSON de la respuesta, yield response['message']['content'] cuando done=False.\n\nMétodo health_check() -> bool: GET {base_url}/api/tags con timeout=5s, retornar True si 200.\n\nFichero: backend/src/adapters/secondary/llm/ollama_llm_adapter.py\nDependencias: httpx (async), settings.ollama_base_url, settings.ollama_llm_model.",
+          "acceptance_criteria": [
+            "OllamaLLMAdapter.complete() retorna LLMResponse con provider='ollama' con Ollama corriendo localmente",
+            "OllamaLLMAdapter.stream() yield tokens progresivamente",
+            "health_check() retorna False si Ollama no está corriendo",
+            "No usa anthropic ni openai SDK — solo HTTP puro via httpx",
+            "test unitario con respuesta HTTP mockeada pasa sin Ollama real"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Similar a ClaudeAdapter pero con httpx en vez de SDK. La dificultad específica es el streaming NDJSON de Ollama (cada línea es un JSON separado con done=false/true). Un turno de generación más verificación."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "El senior debe leer la doc de la API de Ollama (/api/chat), manejar el streaming NDJSON manualmente y escribir el mock de respuesta HTTP para el test. Sin la doc a mano: más."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-11",
+      "title": "Primer caso de uso vertical: EstimateTask",
+      "description": "Implementación end-to-end del caso de uso de estimación: EstimationService en dominio, EstimateTaskUseCase en aplicación, endpoint REST /api/v1/estimate y tests de integración. Es el primer caso de uso completamente funcional del sistema.",
+      "acceptance_criteria": [
+        "POST /api/v1/estimate con título y descripción retorna Estimation con points, confidence, breakdown y rationale",
+        "La estimación usa historial de tareas similares via RAG (ChromaDB)",
+        "json_mode=True en LLMRequest garantiza respuesta JSON parseable desde el LLM",
+        "confidence ∈ [0.0, 1.0] y points ∈ FIBONACCI_POINTS = (1,2,3,5,8,13,21)",
+        "Tests de integración pasan con mocks (sin LLM real)"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-12",
+          "title": "Implementar EstimationService en dominio",
+          "description": "Implementar los métodos de backend/src/domain/services/estimation_service.py. Clase EstimationService con constructor __init__(llm_port: LLMPort, task_repo: TaskRepositoryPort, vector_store: VectorStorePort).\n\nMétodo estimate(task: Task, similar_chunks: list[SearchResult]) -> Estimation: construir prompt de sistema con las instrucciones de estimación y los chunks de contexto formateados; construir prompt de usuario con task.title, task.description y ejemplos de similares; llamar await self._llm.complete(LLMRequest(prompt=..., task_type=LLMTaskType.REASONING, json_mode=True, max_tokens=512)); parsear JSON response en Estimation con fields: points (validar en FIBONACCI_POINTS), confidence (validar 0-1), breakdown (PointsBreakdown), rationale (str), risks (list[str]). Si el JSON es inválido o los valores están fuera de rango, lanzar ValueError con detalle.\n\nMétodo breakdown_epic(epic: Task) -> list[Task]: llamar LLM con task_type=REASONING y json_mode=True para descomponer el epic en historias de usuario; retornar lista ≤15 Task con type=STORY; validar que la suma de estimated_points es razonable.\n\nFichero: backend/src/domain/services/estimation_service.py\nDependencias (todas por puerto): LLMPort, TaskRepositoryPort, VectorStorePort. No importa nada de adapters/ ni infrastructure/.",
+          "acceptance_criteria": [
+            "estimate() retorna Estimation con points en FIBONACCI_POINTS y confidence en [0.0, 1.0]",
+            "estimate() con json inválido del LLM lanza ValueError descriptivo",
+            "breakdown_epic() retorna lista de Task con type=STORY y len ≤ 15",
+            "EstimationService no importa ningún adaptador concreto — solo puertos abstractos",
+            "test_estimate_calls_llm() en tests/unit/domain/services/test_estimation_service.py pasa"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 2.0,
+            "notes": "El grueso del tiempo es la ingeniería del prompt: qué incluir en el system prompt, cómo formatear los chunks similares y cómo especificar el schema JSON esperado para que el LLM lo siga consistentemente. Requiere iteraciones de prueba-error incluso con IA."
+          },
+          "estimation_human": {
+            "hours": 6,
+            "notes": "La parte difícil no es el código Python sino el prompt engineering: conseguir que el LLM devuelva JSON válido con points en Fibonacci y confidence calibrada correctamente. El senior necesita diseñar el prompt, probarlo con el LLM real y manejar los casos de output inválido."
+          }
+        },
+        {
+          "key": "PMCP-13",
+          "title": "Implementar EstimateTask use case",
+          "description": "Implementar backend/src/application/use_cases/estimate_task_use_case.py. Clase EstimateTaskUseCase con constructor __init__(llm_port: LLMPort, task_repo: TaskRepositoryPort, embedding_port: EmbeddingPort, vector_store: VectorStorePort): instancia self._estimation_service = EstimationService(llm_port, task_repo, vector_store), almacena embedding_port y vector_store.\n\nMétodo execute(command: EstimateTaskCommand) -> EstimateTaskResult: (1) construir texto de búsqueda combinando command.title + command.description + (command.acceptance_criteria or ''), (2) llamar embedding = await self._embedding.embed(text), (3) llamar similar = await self._vector_store.search(embedding, collection=KNOWLEDGE_COLLECTION, top_k=5, filter={'project_id': str(command.project_id)}), (4) construir Task temporal sin ID para pasar a EstimationService, (5) estimation = await self._estimation_service.estimate(task, similar), (6) retornar EstimateTaskResult(estimation=estimation, task_id=task.id).\n\nClase EstimateTaskCommand en backend/src/application/commands/estimate_task_command.py: fields project_id, title, description, acceptance_criteria, component_tags.\nClase EstimateTaskResult: fields estimation: Estimation, task_id: uuid.UUID.\n\nFichero: backend/src/application/use_cases/estimate_task_use_case.py\nDependencias: EstimationService, EmbeddingPort, VectorStorePort, KNOWLEDGE_COLLECTION (rag_service.py).",
+          "acceptance_criteria": [
+            "execute() con mock_embedding y mock_vector_store retorna EstimateTaskResult",
+            "execute() llama embed() exactamente una vez con el texto combinado",
+            "execute() llama vector_store.search() con el embedding resultado de embed()",
+            "test_execute_returns_estimation() en tests/unit/application/use_cases/ pasa",
+            "test_execute_embeds_description() verifica que embed() fue llamado"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "La lógica de orquestación es directa: embed → search → estimate. Con el stub ya definido y los puertos claros, la IA rellena el execute() en un turno."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "Código de cableado entre servicios. El senior lo escribe rápido pero necesita verificar el orden correcto (embed primero, luego buscar con el vector resultante) y asegurarse de pasar el project_id al filter."
+          }
+        },
+        {
+          "key": "PMCP-14",
+          "title": "Endpoint REST /estimate funcional",
+          "description": "Implementar los handlers en backend/src/adapters/primary/api/estimate_router.py y conectarlos al DI container.\n\nRuta POST /api/v1/estimate: body EstimateRequest (Pydantic: project_id UUID, title str, description str, acceptance_criteria Optional[str], component_tags list[str]=[]), retorna EstimationResponse (Pydantic: estimation_id UUID, points int, confidence float, breakdown dict, rationale str, similar_tasks list, risks list). Handler: obtener EstimateTaskUseCase desde container, construir EstimateTaskCommand desde body, llamar use_case.execute(command), mapear Estimation → EstimationResponse.\n\nRuta POST /api/v1/estimate/breakdown: body BreakdownEpicRequest (project_id, title, description), retorna BreakdownEpicResponse (stories: list[TaskResponse]). Llama EstimationService.breakdown_epic().\n\nActualizar backend/src/infrastructure/container.py: añadir property estimate_use_case -> EstimateTaskUseCase que construye la cadena llm_router → estimation_service → use_case con lazy init.\n\nFicheros afectados: backend/src/adapters/primary/api/estimate_router.py, backend/src/infrastructure/container.py.",
+          "acceptance_criteria": [
+            "POST /api/v1/estimate retorna 200 con EstimationResponse válido con LLM real",
+            "POST /api/v1/estimate con project_id inválido retorna 422",
+            "POST /api/v1/estimate/breakdown retorna lista de historias con type=story",
+            "GET /health retorna 200 (el router no rompe el startup de FastAPI)",
+            "El endpoint aparece en /docs (OpenAPI) con esquemas correctos"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Dos tareas: escribir el router FastAPI (handler + Pydantic schemas) y cablear el use case en Container. La IA lo genera bien en un turno. El tiempo extra es por verificar que /docs muestra los tipos correctos."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "El senior tarda en: definir los schemas Pydantic de request/response, mapear entre Estimation (dominio) y EstimationResponse (API), y añadir el property con lazy init correcto en Container sin romper otros providers."
+          }
+        },
+        {
+          "key": "PMCP-15",
+          "title": "Tests de integración del caso de uso",
+          "description": "Completar los tests stub en backend/tests/unit/application/use_cases/test_estimate_task_use_case.py usando las fixtures de conftest.py.\n\ntest_execute_returns_estimation: construir EstimateTaskUseCase(mock_llm, mock_task_repo, mock_embedding, mock_vector_store), llamar execute(EstimateTaskCommand(project_id=project_id, title='Test', description='As a user...')), verificar que el resultado es EstimateTaskResult con estimation.points in FIBONACCI_POINTS.\n\ntest_execute_embeds_description: verificar que mock_embedding.embed fue llamado con texto que contiene el title y description del command.\n\ntest_execute_searches_similar_tasks: verificar que mock_vector_store.search fue llamado con el vector retornado por mock_embedding.embed.\n\nAñadir en backend/tests/unit/domain/services/test_estimation_service.py: test_estimate_calls_llm (mock_llm.complete retorna JSON válido de Estimation, verificar que EstimationService.estimate retorna Estimation con points correctos) y test_breakdown_epic_max_15_stories (verificar len(tasks) ≤ 15).\n\nFicheros: backend/tests/unit/application/use_cases/test_estimate_task_use_case.py, backend/tests/unit/domain/services/test_estimation_service.py\nFixtures disponibles en conftest.py: project_id, task_id, sample_task, mock_llm, mock_task_repo, mock_vector_store, mock_embedding.",
+          "acceptance_criteria": [
+            "pytest backend/tests/unit/ -v pasa todos los tests sin conexión a red",
+            "mock_llm.complete es llamado exactamente una vez por llamada a estimate()",
+            "test_estimate_calls_llm pasa con el JSON de Estimation que retorna mock_llm",
+            "test_breakdown_epic_max_15_stories falla si se retornan más de 15 tareas"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "Los stubs ya existen con los nombres correctos. La IA rellena los cuerpos de test usando las fixtures de conftest.py. El mock_llm ya retorna JSON de Estimation — solo hay que hacer assert sobre el resultado."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "El senior necesita construir el JSON correcto de Estimation para el return value del mock_llm, y verificar qué campos exactamente comprobar en cada assertion."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-16",
+      "title": "Chat con streaming",
+      "description": "Implementación del flujo de chat completo: QueryProjectStatusUseCase como herramienta de contexto, WebSocket handler con streaming de tokens LLM al frontend, hook useCopilotChat en React y componente ChatWindow funcional.",
+      "acceptance_criteria": [
+        "ws://localhost:8000/api/v1/chat/stream/{message_id} entrega eventos {type:'token'} durante el streaming",
+        "El evento final es {type:'done', sources:[...]} con las fuentes RAG usadas",
+        "El componente ChatWindow muestra tokens en tiempo real según llegan",
+        "QueryProjectStatusUseCase retorna ProjectStatusResult con datos reales de la BD"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-17",
+          "title": "Implementar QueryProjectStatus use case",
+          "description": "Implementar backend/src/application/use_cases/query_project_status_use_case.py. Clase QueryProjectStatusUseCase con constructor __init__(task_repo: TaskRepositoryPort, sprint_repo: SprintRepositoryPort).\n\nMétodo execute(project_id: uuid.UUID) -> ProjectStatusResult: (1) sprint = await self._sprint_repo.get_active(project_id), (2) all_tasks = await self._task_repo.list_by_project(project_id, sprint_id=sprint.id if sprint else None), (3) calcular completed_points = sum(t.actual_points or t.estimated_points or 0 for t in all_tasks if t.status == TaskStatus.DONE), remaining_points = sum(t.estimated_points or 0 for t in all_tasks if t.status != TaskStatus.DONE), total_points = completed_points + remaining_points, (4) days_remaining = (sprint.end_date - datetime.utcnow()).days if sprint and sprint.end_date else None, (5) blocked_task_count = sum(1 for t in all_tasks if t.status == TaskStatus.IN_REVIEW and t.priority in (TaskPriority.HIGH, TaskPriority.CRITICAL)).\n\nDataclass ProjectStatusResult ya definido en el fichero stub con fields: active_sprint_name, completed_points, remaining_points, total_points, days_remaining, blocked_task_count.\n\nFichero: backend/src/application/use_cases/query_project_status_use_case.py\nDependencias: TaskRepositoryPort, SprintRepositoryPort, TaskStatus, TaskPriority (domain/entities/task.py).",
+          "acceptance_criteria": [
+            "execute() con proyecto sin sprint activo retorna days_remaining=None y active_sprint_name=None",
+            "completed_points suma solo tareas con status=DONE",
+            "blocked_task_count cuenta tareas IN_REVIEW con prioridad HIGH o CRITICAL",
+            "test unitario con mock_task_repo y mock_sprint_repo pasa"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "Lógica de agregación pura sobre listas. Sin llamadas LLM. La IA genera el execute() completo en un turno; los cálculos de puntos y días son directos."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "Fácil de escribir pero fácil de equivocarse en los detalles: usar actual_points OR estimated_points para DONE, no contar tareas sin sprint si el sprint no es activo, timezone-aware datetime para days_remaining."
+          }
+        },
+        {
+          "key": "PMCP-18",
+          "title": "WebSocket handler con streaming real",
+          "description": "Implementar backend/src/adapters/primary/websocket/chat_ws_handler.py. El stub ya define la ruta @router.websocket('/api/v1/chat/stream/{message_id}').\n\nFlujo de handle chat_stream(websocket: WebSocket, message_id: uuid.UUID): (1) await websocket.accept(), (2) obtener mensaje pendiente de la BD via chat repo (message_id), (3) obtener historial de la sesión, (4) construir contexto RAG: embed el texto del mensaje, buscar en vector_store con project_id filter, obtener top-5 chunks, (5) construir prompt con historial + contexto RAG, (6) llamar llm_router.stream(LLMRequest(prompt, task_type=REASONING)), (7) async for token in stream: await websocket.send_json({'type':'token','content':token}), (8) persistir respuesta completa en chat_messages con role='assistant', (9) await websocket.send_json({'type':'done','sources':[{'content':c.content,'url':c.url} for c in similar_chunks]}), (10) en caso de excepción: await websocket.send_json({'type':'error','detail':str(e)}), await websocket.close().\n\nFichero: backend/src/adapters/primary/websocket/chat_ws_handler.py\nDependencias: LLMRouter, RAGService, repositorios de chat (chat_sessions, chat_messages).",
+          "acceptance_criteria": [
+            "Conexión WebSocket recibe al menos un evento {type:'token'} durante el streaming",
+            "El último evento es {type:'done'} con lista de sources",
+            "Si el message_id no existe, el handler envía {type:'error'} y cierra la conexión",
+            "La respuesta del asistente queda persistida en chat_messages con role='assistant'"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 2.0,
+            "notes": "El streaming bidireccional WebSocket con acumulación de tokens, persistencia de la respuesta completa y envío del evento 'done' con sources tiene muchos puntos de fallo. La IA genera la estructura correcta pero la gestión del ciclo de vida del WebSocket (accept, close, errores) requiere iteraciones."
+          },
+          "estimation_human": {
+            "hours": 6,
+            "notes": "El patrón AsyncIterator + WebSocket en FastAPI tiene muchos casos borde: qué pasa si el cliente desconecta durante el stream, cómo propagar errores del LLM al frontend, cómo acumular tokens para persistirlos. Sin experiencia previa con WebSockets en FastAPI: 8h. Senior experimentado: 6h."
+          }
+        },
+        {
+          "key": "PMCP-19",
+          "title": "useCopilotChat hook en frontend",
+          "description": "Implementar frontend/src/hooks/useCopilotChat.ts. El stub está en throw new Error('Not implemented').\n\nInterface del hook: useCopilotChat(projectId: string) retorna { messages: ChatMessage[], isStreaming: boolean, send: (text: string) => Promise<void>, error: string | null }.\n\nImplementación: (1) estado local messages: ChatMessage[], isStreaming, error; (2) send(text): POST /api/v1/chat/sessions/{sessionId}/messages via chatService.sendMessage(), obtener message_id de la respuesta; (3) abrir WebSocket ws://localhost:8000/api/v1/chat/stream/{message_id}; (4) manejar eventos según StreamEvent union type definido en frontend/src/types/chat.ts: en token → concatenar a buffer de respuesta en curso; en done → añadir mensaje completo a messages, setIsStreaming(false); en error → setError(detail); (5) gestionar ciclo de vida del WebSocket en useEffect cleanup.\n\nTipos relevantes en frontend/src/types/chat.ts: StreamEvent (union de TokenEvent | DoneEvent | ErrorEvent), ChatMessage (id, role, content, sources, createdAt).\n\nFichero: frontend/src/hooks/useCopilotChat.ts\nDependencias: chatService (frontend/src/services/chatService.ts), tipos de chat.ts.",
+          "acceptance_criteria": [
+            "send() abre WebSocket y acumula tokens en el mensaje en curso",
+            "Al recibir done, el mensaje completo aparece en messages",
+            "isStreaming=true durante el streaming, false al terminar o en error",
+            "El WebSocket se cierra correctamente en el cleanup del useEffect"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "La IA genera el hook con useReducer o useState + WebSocket en un turno. El riesgo es el cleanup del WebSocket en useEffect (memory leaks si no se hace bien) — puede requerir una corrección."
+          },
+          "estimation_human": {
+            "hours": 4,
+            "notes": "Gestionar el estado de streaming en React con WebSocket es sutil: acumular tokens en una ref vs state (para evitar re-renders por token), el cleanup de useEffect, y el tipado correcto de StreamEvent como discriminated union. 4h para un senior con experiencia en WebSockets."
+          }
+        },
+        {
+          "key": "PMCP-20",
+          "title": "Componente Chat funcional conectado al backend",
+          "description": "Implementar frontend/src/components/chat/ChatWindow.tsx, ChatInput.tsx y MessageBubble.tsx. Los stubs existen con throw new Error('Not implemented').\n\nChatWindow: componente principal que usa el hook useCopilotChat(projectId). Renderiza lista de MessageBubble para cada mensaje en messages[]. Muestra indicador de carga (LoadingSpinner de ui/LoadingSpinner.tsx) cuando isStreaming=true. Pasa la función send al ChatInput. El mensaje en curso (streaming) se muestra como MessageBubble con contenido parcial y cursor parpadeante.\n\nChatInput: input de texto controlado + botón Enviar. Deshabilitado cuando isStreaming=true. Al submit llama send(text) y limpia el input.\n\nMessageBubble: renderiza un ChatMessage. role='user' alineado a la derecha con fondo azul; role='assistant' alineado a la izquierda con fondo gris. Si sources existe, mostrar lista colapsable de fuentes con url.\n\nFicheros: frontend/src/components/chat/ChatWindow.tsx, ChatInput.tsx, MessageBubble.tsx\nDependencias: useCopilotChat hook, LoadingSpinner (ui/), tipos de chat.ts.",
+          "acceptance_criteria": [
+            "El componente renderiza sin errores en navegador",
+            "Escribir un mensaje y pulsar Enviar envía la petición al backend y muestra la respuesta streaming",
+            "Durante el streaming el botón Enviar está deshabilitado",
+            "Los mensajes del usuario aparecen a la derecha y los del asistente a la izquierda",
+            "Las fuentes RAG se muestran bajo cada respuesta del asistente"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Tres componentes React con lógica de presentación. La IA los genera bien dado el hook ya implementado. El cursor parpadeante en el mensaje en curso requiere un CSS extra pero es simple."
+          },
+          "estimation_human": {
+            "hours": 4,
+            "notes": "El senior escribe los tres componentes sin problema, pero la lista colapsable de fuentes, el cursor de streaming y el autoscroll al último mensaje son detalles de UX que consumen tiempo. CSS sin librería de componentes: 4h."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-21",
+      "title": "RAG y base de conocimiento",
+      "description": "Pipeline RAG completo: OllamaEmbeddingAdapter con nomic-embed-text, ChromaDBAdapter contra el contenedor Docker, IndexDocumentsUseCase para indexar Confluence/Jira/GitHub, QueryKnowledgeUseCase para responder preguntas con contexto, y tests de integración contra servicios reales.",
+      "acceptance_criteria": [
+        "IndexDocuments indexa páginas de Confluence y las recupera correctamente en QueryKnowledge",
+        "OllamaEmbeddingAdapter produce vectores de dimensión 768 con nomic-embed-text",
+        "ChromaDBAdapter filtra por project_id en los metadatos",
+        "Tests de integración contra ChromaDB Docker pasan con make up"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-22",
+          "title": "Implementar OllamaEmbeddingAdapter",
+          "description": "Implementar backend/src/adapters/secondary/embedding/ollama_embedding_adapter.py. Clase OllamaEmbeddingAdapter(EmbeddingPort). Constantes del módulo: NOMIC_EMBED_MODEL = 'nomic-embed-text', NOMIC_EMBED_DIMENSION = 768.\n\nConstructor __init__(base_url: str = settings.ollama_base_url, model: str = NOMIC_EMBED_MODEL).\n\nMétodo embed(text: str) -> list[float]: POST {base_url}/api/embeddings con body {'model': model, 'prompt': text}. Parsear response['embedding']. Validar que len(result) == NOMIC_EMBED_DIMENSION. Retornar list[float].\n\nMétodo embed_batch(texts: list[str]) -> list[list[float]]: iterar llamando embed() por cada texto (Ollama no soporta batch nativo en /api/embeddings). Alternativa: asyncio.gather para paralelizar.\n\nProperty dimension -> int: retornar NOMIC_EMBED_DIMENSION.\n\nFichero: backend/src/adapters/secondary/embedding/ollama_embedding_adapter.py\nDependencias: httpx (async), EmbeddingPort (domain/ports/embedding_port.py), settings.",
+          "acceptance_criteria": [
+            "embed('hello world') retorna list[float] de longitud 768 con Ollama corriendo",
+            "embed_batch(['a', 'b']) retorna lista de 2 vectores de longitud 768",
+            "dimension property retorna 768",
+            "Con Ollama parado lanza excepción descriptiva (no silencia el error)",
+            "Test unitario con respuesta HTTP mockeada pasa sin Ollama real"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "Adaptador más simple del proyecto: un endpoint HTTP, un campo en la respuesta, una validación. La IA lo genera en un turno. El embed_batch con asyncio.gather es el único punto de interés."
+          },
+          "estimation_human": {
+            "hours": 1.5,
+            "notes": "Trivial para un senior. El único cuidado es usar httpx async correctamente y no bloquear el event loop en embed_batch."
+          }
+        },
+        {
+          "key": "PMCP-23",
+          "title": "Implementar ChromaDBAdapter",
+          "description": "Implementar backend/src/adapters/secondary/vector_store/chromadb_adapter.py. Clase ChromaDBAdapter(VectorStorePort). Constructor __init__(host: str = settings.chromadb_host, port: int = settings.chromadb_port): instancia self._client = chromadb.AsyncHttpClient(host=host, port=port).\n\nMétodo upsert(id, embedding, content, metadata, collection): obtener o crear colección via self._client.get_or_create_collection(collection), llamar collection.upsert(ids=[id], embeddings=[embedding], documents=[content], metadatas=[metadata]).\n\nMétodo search(query_embedding, collection, top_k, filter) -> list[SearchResult]: obtener colección, llamar collection.query(query_embeddings=[query_embedding], n_results=top_k, where=filter if filter else None). Mapear resultados a list[SearchResult] con SearchResult(id, content=documents[0][i], score=1-distances[0][i], metadata=metadatas[0][i]).\n\nMétodo delete(id, collection): collection.delete(ids=[id]).\n\nMétodo collection_exists(collection) -> bool: intentar self._client.get_collection(collection), retornar True; except: retornar False.\n\nFichero: backend/src/adapters/secondary/vector_store/chromadb_adapter.py\nDependencias: chromadb (en pyproject.toml), VectorStorePort, SearchResult (domain/ports/vector_store_port.py), settings.",
+          "acceptance_criteria": [
+            "upsert() + search() recupera el documento insertado con score > 0.8 para texto idéntico",
+            "search() con where={'project_id': 'X'} no retorna documentos de project_id 'Y'",
+            "collection_exists() retorna False para colecciones no creadas",
+            "Test de integración test_upsert_and_search() pasa contra ChromaDB Docker"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "La API de ChromaDB es bien conocida por los LLMs. Los 4 métodos se implementan en un turno. El mapeo distances→score (1-distance) y el formato del where filter son los únicos puntos que requieren atención."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "El senior necesita leer la doc de ChromaDB async client, entender el formato de respuesta de .query() (listas anidadas) y escribir el test de integración con el contenedor Docker."
+          }
+        },
+        {
+          "key": "PMCP-24",
+          "title": "IndexDocuments use case",
+          "description": "Implementar backend/src/application/use_cases/index_documents_use_case.py. Clase IndexDocumentsUseCase con constructor __init__(rag_service: RAGService, confluence_port: ConfluencePort, jira_port: JiraPort, github_port: GitHubPort).\n\nMétodo execute(command: IndexDocumentsCommand) -> IndexDocumentsResult: para cada source en command.sources: si KnowledgeSource.CONFLUENCE → await confluence_port.list_pages(space_key), para cada página obtener contenido con confluence_port.get_page_content(), crear KnowledgeChunk con source=CONFLUENCE, doc_id=page_id, luego await rag_service.index_chunks(chunks); si KnowledgeSource.JIRA → list_issues y convertir a chunks; si KnowledgeSource.GITHUB → get_file_content de README y docs/. Usar DocumentChunker (infrastructure/rag/chunker.py) para dividir en chunks de 512 tokens con 50 de overlap. Retornar IndexDocumentsResult(indexed_count, failed_count, sources_processed).\n\nEl endpoint POST /api/v1/knowledge/index en knowledge_router.py llama este use case via BackgroundTasks de FastAPI (retorna 202 inmediatamente).\n\nFichero: backend/src/application/use_cases/index_documents_use_case.py\nDependencias: RAGService (domain/services/rag_service.py), ConfluencePort, JiraPort, GitHubPort, DocumentChunker (infrastructure/rag/chunker.py), IndexDocumentsCommand, IndexDocumentsResult.",
+          "acceptance_criteria": [
+            "execute() con source=[CONFLUENCE] indexa páginas del espacio PBPMIA en ChromaDB",
+            "execute() con force_reindex=False omite chunks cuyo embedding_id ya existe en la BD",
+            "execute() con ConfluencePort lanzando excepción retorna failed_count > 0 sin propagar",
+            "POST /api/v1/knowledge/index retorna 202 inmediatamente (procesamiento en background)"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 2.0,
+            "notes": "La orquestación de tres fuentes heterogéneas (Confluence, Jira, GitHub) con chunking, deduplicación y conteo de errores sin propagar excepciones es la tarea más compleja del epic RAG. Requiere dos turnos: generación del flujo principal y refinamiento del manejo de errores por fuente."
+          },
+          "estimation_human": {
+            "hours": 6,
+            "notes": "El senior tiene que diseñar la lógica de deduplicación (¿comparar por embedding_id o por doc_id+section?), el chunking configurable con overlap, y cómo convertir issues de Jira y ficheros de GitHub en KnowledgeChunks con metadatos útiles. 6h sin contar el DocumentChunker."
+          }
+        },
+        {
+          "key": "PMCP-25",
+          "title": "QueryKnowledge use case",
+          "description": "Implementar backend/src/application/use_cases/query_knowledge_use_case.py. Clase QueryKnowledgeUseCase con constructor __init__(llm_port: LLMPort, rag_service: RAGService).\n\nMétodo execute(command: KnowledgeQueryCommand) -> KnowledgeQueryResult: (1) similar = await self._rag_service.search(command.query, project_id=str(command.project_id), top_k=command.top_k), (2) si similar está vacío retornar KnowledgeQueryResult(answer='No se encontró información relevante.', sources=[]), (3) construir context_text = '\\n\\n'.join([f'Fuente: {r.metadata.get(\"url\",\"\")}\\n{r.content}' for r in similar]), (4) prompt = f'Contexto:\\n{context_text}\\n\\nPregunta: {command.query}\\n\\nResponde basándote solo en el contexto.', (5) response = await self._llm.complete(LLMRequest(prompt, task_type=LLMTaskType.SIMPLE_QA)), (6) retornar KnowledgeQueryResult(answer=response.content, sources=similar).\n\nDataclasses KnowledgeQueryCommand(project_id, query, top_k=5) y KnowledgeQueryResult(answer, sources) definidos en el stub.\n\nFichero: backend/src/application/use_cases/query_knowledge_use_case.py\nDependencias: LLMPort, RAGService, LLMTaskType.SIMPLE_QA.",
+          "acceptance_criteria": [
+            "execute() con chunks indexados en ChromaDB retorna respuesta coherente con las fuentes",
+            "execute() con ChromaDB vacío retorna 'No se encontró información relevante.'",
+            "sources en KnowledgeQueryResult coincide con los SearchResult retornados por RAGService",
+            "task_type=SIMPLE_QA en LLMRequest (enrutado a Groq/Ollama en modo HYBRID)"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "El patrón RAG (buscar → formatear contexto → llamar LLM) es el más repetido en el proyecto. La IA lo genera en medio turno."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "Sencillo conceptualmente. El senior tarda principalmente en decidir el formato del prompt de contexto y cómo manejar el caso sin resultados de RAG."
+          }
+        },
+        {
+          "key": "PMCP-26",
+          "title": "Tests de integración RAG",
+          "description": "Completar backend/tests/integration/adapters/test_chromadb_adapter.py. Requiere ChromaDB corriendo en localhost:8001 (via make up).\n\ntest_upsert_and_search: crear ChromaDBAdapter(), upsert un documento con embedding de 768 dimensiones y metadata {'project_id':'test-proj'}, llamar search() con el mismo embedding, verificar que el resultado contiene el documento con score > 0.9.\n\ntest_filter_by_project_id: upsert dos documentos con diferentes project_id, buscar con filter={'project_id':'proj-A'}, verificar que solo retorna documentos de proj-A.\n\ntest_collection_lifecycle: collection_exists('nonexistent') == False, upsert en colección nueva, collection_exists('nueva') == True, delete el documento, search retorna lista vacía.\n\nAñadir marcador @pytest.mark.integration en estos tests y configurar en pyproject.toml [tool.pytest.ini_options] markers = ['integration: tests that require external services']. Ejecutar con pytest -m integration.\n\nFichero: backend/tests/integration/adapters/test_chromadb_adapter.py",
+          "acceptance_criteria": [
+            "pytest -m integration pasa con make up ejecutado previamente",
+            "test_filter_by_project_id falla si ChromaDBAdapter no filtra por metadata",
+            "Los tests limpian las colecciones creadas en teardown (no dejan estado)",
+            "pytest -m 'not integration' pasa sin Docker (solo mocks)"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Los tres tests son directos. El punto más cuidadoso es el teardown (limpiar colecciones para no contaminar otros tests) y generar vectores de 768 dimensiones sintéticos para el test sin Ollama real."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "El senior tarda en: generar vectores de dimensión correcta para el test (no se puede usar embeddings reales sin Ollama), configurar el teardown con fixture de sesión, y verificar que el filter de metadata funciona realmente (ChromaDB tiene matices en la sintaxis del where)."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-27",
+      "title": "Persistencia",
+      "description": "Adaptadores PostgreSQL para las tres entidades principales (Task, Project, Sprint), migraciones Alembic y tests de integración contra la BD real. Los adaptadores implementan los puertos del dominio usando SQLAlchemy async.",
+      "acceptance_criteria": [
+        "PostgreSQLTaskAdapter.save() persiste y recupera Task con todos sus campos",
+        "PostgreSQLSprintAdapter.get_active() aprovecha el índice único parcial de la BD",
+        "alembic upgrade head aplica el schema inicial sin errores en BD vacía",
+        "Tests de integración pasan con make db-init ejecutado"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-28",
+          "title": "Implementar PostgreSQLTaskAdapter",
+          "description": "Implementar backend/src/adapters/secondary/persistence/postgresql_task_adapter.py. Clase PostgreSQLTaskAdapter(TaskRepositoryPort). Constructor recibe session_factory: async_sessionmaker (inyectado desde Container).\n\nDefinir SQLAlchemy model TaskORM (Table 'tasks'): mapear todos los campos de la entidad Task incluyendo tags (ARRAY(String)), type/status/priority/jira_sync_status (String con CHECK en BD). Métodos de conversión: _to_orm(task: Task) -> TaskORM y _to_entity(orm: TaskORM) -> Task.\n\nMétodo get_by_id(task_id) -> Optional[Task]: async with session_factory() as session: result = await session.get(TaskORM, task_id), retornar _to_entity(result) o None.\n\nMétodo list_by_project(project_id, status, sprint_id) -> list[Task]: construir SELECT con filtros opcionales usando SQLAlchemy core expressions.\n\nMétodo save(task) -> Task: merge (upsert) del ORM model, flush, retornar _to_entity.\n\nMétodo delete(task_id): await session.delete(await session.get(TaskORM, task_id)).\n\nMétodo list_pending_jira_sync(project_id) -> list[Task]: WHERE jira_sync_status='pending' AND project_id=project_id, aprovecha idx_tasks_jira_sync_status.\n\nFichero: backend/src/adapters/secondary/persistence/postgresql_task_adapter.py\nDependencias: SQLAlchemy[asyncio], asyncpg, TaskRepositoryPort, Task entity, settings.database_url.",
+          "acceptance_criteria": [
+            "save() + get_by_id() recupera Task con todos los campos incluyendo tags list",
+            "list_by_project(status=TaskStatus.DONE) filtra correctamente",
+            "list_pending_jira_sync() retorna solo tareas con jira_sync_status='pending'",
+            "save() en tarea existente actualiza updated_at via trigger de BD",
+            "test_save_and_retrieve_task() en tests/integration pasa con PostgreSQL real"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 2.0,
+            "notes": "El ORM mapping de Task es el más complejo del proyecto: ARRAY(String) para tags, UUID como PK, 4 columnas enum como String. El método save() con session.merge() (upsert) vs add() es sutil. Requiere un turno de generación más uno de corrección de tipos SQLAlchemy."
+          },
+          "estimation_human": {
+            "hours": 6,
+            "notes": "SQLAlchemy async tiene diferencias importantes respecto al síncrono: session.merge() vs session.add(), la gestión del async_sessionmaker, y el mapping de ARRAY(String) de PostgreSQL. Con la doc a mano y experiencia previa en SQLAlchemy async: 6h."
+          }
+        },
+        {
+          "key": "PMCP-29",
+          "title": "Implementar PostgreSQLProjectAdapter + SprintAdapter",
+          "description": "Implementar backend/src/adapters/secondary/persistence/postgresql_project_adapter.py con dos clases.\n\nClase PostgreSQLProjectAdapter(ProjectRepositoryPort): ORM model ProjectORM (tabla 'projects'), métodos get_by_id, list_all, save, delete. list_all usa SELECT * ORDER BY created_at DESC.\n\nClase PostgreSQLSprintAdapter(SprintRepositoryPort): ORM model SprintORM (tabla 'sprints'), métodos get_by_id, get_active, list_by_project, save. get_active(project_id): SELECT ... WHERE project_id=X AND status='active' LIMIT 1 — aprovecha el índice único parcial uq_sprints_one_active_per_project de db_init.sql. Si se intenta guardar un sprint activo cuando ya existe uno, la BD lanza IntegrityError; capturar y relanzar como DomainError.\n\nActualizar backend/src/infrastructure/container.py: añadir properties project_repo -> PostgreSQLProjectAdapter y sprint_repo -> PostgreSQLSprintAdapter con lazy init del engine SQLAlchemy y session_factory compartido.\n\nFichero: backend/src/adapters/secondary/persistence/postgresql_project_adapter.py",
+          "acceptance_criteria": [
+            "PostgreSQLSprintAdapter.get_active() retorna None si no hay sprint activo",
+            "Guardar dos sprints activos en el mismo proyecto lanza DomainError (BD IntegrityError)",
+            "PostgreSQLProjectAdapter.list_all() retorna proyectos ordenados por created_at DESC",
+            "save() en Project actualiza updated_at via trigger"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.5,
+            "notes": "Similar a PMCP-28 pero con entidades más simples. El único punto no trivial es la captura de IntegrityError del sprint activo y su conversión a DomainError (requiere no exponer detalles de BD al dominio)."
+          },
+          "estimation_human": {
+            "hours": 5,
+            "notes": "Dos ORM models con sus conversiones, más la lógica de IntegrityError→DomainError que requiere saber qué constraint específica violó la BD. El lazy init del engine en Container con session_factory compartida también tiene sutilezas."
+          }
+        },
+        {
+          "key": "PMCP-30",
+          "title": "Migraciones con Alembic",
+          "description": "Configurar Alembic en backend/alembic/ y crear la migración inicial que refleje el schema de db_init.sql.\n\nFicheros a completar: backend/alembic/env.py (configurar target_metadata con los ORM models de SQLAlchemy, leer DATABASE_URL desde settings), backend/alembic.ini (sqlalchemy.url deferido a env.py via env variable).\n\nEjecutar alembic revision --autogenerate -m 'initial schema' para generar backend/alembic/versions/001_initial_schema.py. Revisar que la migración generada incluye todas las tablas, índices y el trigger set_updated_at (el trigger requiere op.execute() manual ya que Alembic no lo genera automáticamente).\n\nVerificar que alembic upgrade head aplicado sobre BD vacía produce el mismo resultado que make db-init. Ambos caminos deben ser idempotentes.\n\nFicheros afectados: backend/alembic/env.py, backend/alembic.ini, backend/alembic/versions/001_initial_schema.py\nDependencias: alembic (en pyproject.toml), SQLAlchemy models de PMCP-28 y PMCP-29.",
+          "acceptance_criteria": [
+            "alembic upgrade head en BD vacía crea las 7 tablas sin errores",
+            "alembic downgrade base deshace la migración sin errores",
+            "alembic upgrade head es idempotente (segunda ejecución no cambia nada)",
+            "El trigger set_updated_at está incluido via op.execute() en la migración"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Alembic --autogenerate hace el 80% del trabajo. El 20% restante es añadir manualmente el trigger set_updated_at con op.execute() y verificar que los índices parciales (GIN, WHERE status='active') se generan correctamente."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "Configurar env.py async de Alembic tiene sus propias particularidades (run_async_migrations). El senior además debe revisar el diff autogenerado para añadir el trigger, los índices GIN y las extensiones (pg_trgm) que Alembic no detecta."
+          }
+        },
+        {
+          "key": "PMCP-31",
+          "title": "Tests de repositorios",
+          "description": "Completar backend/tests/integration/adapters/test_postgresql_task_adapter.py. Requiere PostgreSQL corriendo con schema aplicado (make db-init).\n\ntest_save_and_retrieve_task: crear Task entity con todos los campos (incluir tags=['backend','api']), llamar adapter.save(), luego adapter.get_by_id(), verificar que task.tags == ['backend','api'] y task.status == TaskStatus.BACKLOG.\n\ntest_list_pending_jira_sync: guardar 3 tareas (2 con jira_sync_status=PENDING, 1 con SYNCED), llamar list_pending_jira_sync(), verificar que retorna exactamente 2.\n\ntest_list_by_project_with_status_filter: 4 tareas (2 DONE, 2 IN_PROGRESS), list_by_project(status=DONE) retorna 2.\n\ntest_delete_task: save + delete + get_by_id retorna None.\n\nAñadir fixture async_session en conftest.py de tests/integration/ que crea una transacción que se hace rollback al final de cada test (evitar estado persistente entre tests).\n\nFichero: backend/tests/integration/adapters/test_postgresql_task_adapter.py\nMarcador: @pytest.mark.integration",
+          "acceptance_criteria": [
+            "pytest -m integration pasa con make db-init ejecutado",
+            "Cada test aísla su estado via rollback de transacción — no hay dependencia entre tests",
+            "test_save_and_retrieve_task verifica todos los campos incluyendo tags (ARRAY)",
+            "Los tests no dejan registros en la BD tras la ejecución"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Los cuatro tests son mecánicos. El patrón de fixture con rollback por test es el punto más delicado: la IA lo genera correctamente pero requiere verificar que el rollback ocurre antes del teardown del engine."
+          },
+          "estimation_human": {
+            "hours": 4,
+            "notes": "El patrón de rollback por test en SQLAlchemy async requiere conocer cómo anidar una transacción savepoint dentro de la sesión de test. Sin experiencia previa con este patrón: fácil hacer tests que se interfieren entre sí."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-32",
+      "title": "Integraciones externas",
+      "description": "Implementación de los tres adaptadores de integración (JiraAdapter, ConfluenceAdapter, GitHubAdapter) y el caso de uso SyncJiraUseCase. Todos con Circuit Breaker via tenacity y tests con mocks HTTP.",
+      "acceptance_criteria": [
+        "JiraAdapter.create_issue() crea un issue real en el proyecto PMCP y retorna el key",
+        "SyncJiraUseCase sincroniza tareas PENDING al Jira correspondiente",
+        "ConfluenceAdapter.update_page() actualiza el contenido de una página en PBPMIA",
+        "Todos los adaptadores tienen Circuit Breaker: tras 3 fallos consecutivos abren el circuito"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-33",
+          "title": "Implementar JiraAdapter (sync bidireccional)",
+          "description": "Implementar backend/src/adapters/secondary/integrations/jira_adapter.py. Clase JiraAdapter(JiraPort). Constructor __init__(base_url: str, email: str, api_token: str): crear httpx.AsyncClient con auth=BasicAuth(email, api_token) y base_url base_url + '/rest/api/3/'.\n\nMétodo get_issue(jira_key) -> dict: GET issues/{jira_key}.\n\nMétodo create_issue(project_key, fields) -> str: POST issue con body {'fields': {'project': {'key': project_key}, **fields}}, retornar response['key'].\n\nMétodo update_issue(jira_key, fields): PUT issue/{jira_key} con body {'fields': fields}.\n\nMétodo list_issues(project_key, jql_filter, max_results) -> list[dict]: GET search/jql con params jql=f'project={project_key} {jql_filter or \"\"}' and maxResults.\n\nMétodo health_check() -> bool: GET serverInfo con timeout=5s.\n\nCircuit Breaker: decorar complete() con @retry(stop=stop_after_attempt(3), wait=wait_exponential(), retry=retry_if_exception_type(httpx.HTTPError), reraise=True) de tenacity.\n\nFichero: backend/src/adapters/secondary/integrations/jira_adapter.py\nDependencias: httpx, tenacity, JiraPort (domain/ports/jira_port.py), settings (JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN).",
+          "acceptance_criteria": [
+            "create_issue() con project_key='PMCP' crea issue real y retorna 'PMCP-NNN'",
+            "list_issues() con jql_filter='status=Done' retorna solo tareas done",
+            "Tras 3 HTTPError consecutivos, tenacity propaga la excepción",
+            "health_check() retorna False si JIRA_URL es incorrecto"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.5,
+            "notes": "Los 5 métodos son HTTP straightforward. Tenemos experiencia con la API de Jira del setup_jira.py (sabemos que /search fue deprecado en favor de /search/jql). La IA aprovecha ese contexto. El decorador tenacity es la parte nueva."
+          },
+          "estimation_human": {
+            "hours": 4,
+            "notes": "El senior conoce la API de Jira v3 (o la busca). El reto es el decorador tenacity: decidir qué excepciones reintentar (HTTPError 5xx sí, 4xx no), y qué hacer con el httpx.AsyncClient lifetime (¿singleton o por request)."
+          }
+        },
+        {
+          "key": "PMCP-34",
+          "title": "Implementar ConfluenceAdapter (publicar reportes)",
+          "description": "Implementar backend/src/adapters/secondary/integrations/confluence_adapter.py. Clase ConfluenceAdapter(ConfluencePort). Misma estructura que el cliente scripts/confluence_client.py pero implementando el puerto ConfluencePort del dominio con httpx async.\n\nConstructor __init__(base_url, email, api_token, space_key): AsyncClient con auth y headers.\n\nMétodo get_page(page_id) -> dict: GET content/{page_id}?expand=version,body.storage.\n\nMétodo create_page(space_key, title, content, parent_id) -> str: POST content/, retornar page_id del response.\n\nMétodo update_page(page_id, title, content, version): PUT content/{page_id} con version+1.\n\nMétodo list_pages(space_key, limit) -> list[dict]: GET content?spaceKey=&type=page&limit=.\n\nMétodo get_page_content(page_id) -> str: GET content/{page_id}?expand=body.storage, retornar body.storage.value.\n\nMétodo health_check() -> bool: GET space/{SPACE_KEY} con timeout=5s.\n\nNota: este adaptador usa el formato storage (XHTML de Confluence). La conversión Markdown→storage se hace en la capa de aplicación o con la función markdown_to_storage() de scripts/confluence_client.py (que puede moverse a infrastructure/).\n\nFichero: backend/src/adapters/secondary/integrations/confluence_adapter.py\nDependencias: httpx, tenacity, ConfluencePort (domain/ports/confluence_port.py).",
+          "acceptance_criteria": [
+            "get_page() retorna dict con campos id, version y body.storage.value",
+            "create_page() crea subpágina real en el espacio PBPMIA",
+            "update_page() con version incorrecta lanza error 409 de Confluence",
+            "health_check() retorna True con credenciales reales"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Tenemos scripts/confluence_client.py como referencia exacta. La IA traduce de requests síncrono a httpx async en un turno. El único trabajo es adaptar la interfaz al ConfluencePort del dominio (diferente de la interfaz del script)."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "Con el scripts/confluence_client.py como referencia, el trabajo es principalmente la traducción a httpx async y el ajuste de la interfaz al puerto. Sin la referencia: 5h."
+          }
+        },
+        {
+          "key": "PMCP-35",
+          "title": "Implementar GitHubAdapter (leer PRs/commits)",
+          "description": "Implementar backend/src/adapters/secondary/integrations/github_adapter.py. Clase GitHubAdapter(GitHubPort). Constructor __init__(token: str): httpx.AsyncClient con headers={'Authorization': f'Bearer {token}', 'X-GitHub-Api-Version': '2022-11-28'}, base_url='https://api.github.com'.\n\nMétodo list_pull_requests(repo, state='open') -> list[dict]: GET /repos/{repo}/pulls?state={state}.\n\nMétodo get_pull_request(repo, pr_number) -> dict: GET /repos/{repo}/pulls/{pr_number}.\n\nMétodo list_issues(repo, state='open') -> list[dict]: GET /repos/{repo}/issues?state={state}.\n\nMétodo get_file_content(repo, path, ref='main') -> str: GET /repos/{repo}/contents/{path}?ref={ref}, decodificar content base64.\n\nMétodo health_check() -> bool: GET /user con timeout=5s, retornar True si 200.\n\nCircuit Breaker via tenacity en todos los métodos públicos.\n\nFichero: backend/src/adapters/secondary/integrations/github_adapter.py\nDependencias: httpx, tenacity, base64, GitHubPort (domain/ports/github_port.py), settings.github_token.",
+          "acceptance_criteria": [
+            "list_pull_requests() retorna PRs del repo configurado con GITHUB_TOKEN válido",
+            "get_file_content() decodifica correctamente el base64 de la respuesta de GitHub API",
+            "health_check() retorna False con GITHUB_TOKEN inválido",
+            "Test con respuesta HTTP mockeada (respyct o httpx mock) pasa sin token real"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "La GitHub API REST es la más bien documentada de las tres. Los 5 métodos son GET simples salvo el decode base64 de get_file_content. La IA lo genera en un turno sin ambigüedades."
+          },
+          "estimation_human": {
+            "hours": 3,
+            "notes": "Sencillo para un senior con experiencia en REST APIs. El único punto de cuidado es el header X-GitHub-Api-Version (sin él la API retorna respuestas del formato antiguo) y el decode base64 del contenido de ficheros."
+          }
+        },
+        {
+          "key": "PMCP-36",
+          "title": "SyncJira use case",
+          "description": "Implementar backend/src/application/use_cases/sync_jira_use_case.py. Clase SyncJiraUseCase con constructor __init__(task_repo: TaskRepositoryPort, jira_port: JiraPort).\n\nMétodo execute(project_id: uuid.UUID) -> SyncJiraResult: (1) pending = await self._task_repo.list_pending_jira_sync(project_id), (2) para cada task en pending: intentar crear/actualizar en Jira via jira_port.create_issue() (si task.jira_key is None) o jira_port.update_issue() (si tiene jira_key); en éxito actualizar task.jira_sync_status=SYNCED y task.jira_key si es nueva; en excepción actualizar task.jira_sync_status=FAILED; guardar via task_repo.save(task); incrementar pushed_count o failed_count, (3) retornar SyncJiraResult(pushed_count, pulled_count=0, conflict_count=0, failed_count).\n\nMétodo sync_single(task_id: uuid.UUID): fetch task, llamar lógica de push individual, actualizar jira_sync_status.\n\nDataclass SyncJiraResult: pushed_count, pulled_count, conflict_count, failed_count.\n\nFichero: backend/src/application/use_cases/sync_jira_use_case.py\nDependencias: TaskRepositoryPort, JiraPort, JiraSyncStatus (domain/entities/task.py).",
+          "acceptance_criteria": [
+            "execute() con 2 tareas PENDING crea 2 issues en Jira y retorna pushed_count=2",
+            "Si jira_port.create_issue lanza excepción, la tarea queda con jira_sync_status=FAILED y failed_count=1",
+            "sync_single() actualiza jira_key en la tarea si antes era None",
+            "Test unitario con mock_task_repo y mock_jira_port pasa sin conexión a Jira"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.5,
+            "notes": "La lógica de sync tiene una bifurcación (create vs update según jira_key) y actualización de estado en dos escenarios (éxito/fallo). La IA lo genera en un turno pero el manejo correcto del estado tras excepción (FAILED, no PENDING) requiere una revisión."
+          },
+          "estimation_human": {
+            "hours": 5,
+            "notes": "La sync bidireccional (incluso en su versión simplificada de solo push) requiere manejar correctamente los estados de transición: PENDING→SYNCED, PENDING→FAILED, y asegurarse de que el jira_key se persiste antes de marcar SYNCED para no crear duplicados."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-37",
+      "title": "Frontend completo",
+      "description": "Implementación de las cuatro páginas del frontend: Dashboard con métricas del sprint, Tasks con CRUD completo, Reports con generación bajo demanda, y configuración PWA para instalación en móvil.",
+      "acceptance_criteria": [
+        "El dashboard muestra métricas reales del sprint activo (puntos completados, restantes, días)",
+        "La página de Tasks permite crear, editar y cambiar estado de tareas",
+        "La página de Reports genera y descarga un informe de sprint en Markdown",
+        "La app es instalable como PWA en Chrome móvil"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-38",
+          "title": "Dashboard con métricas del proyecto",
+          "description": "Implementar frontend/src/components/dashboard/SprintOverview.tsx y VelocityChart.tsx, y la página de dashboard.\n\nSprintOverview: recibe ProjectStatusResult (mapeado del endpoint GET /api/v1/projects/{id}/status que llama QueryProjectStatusUseCase). Muestra: nombre del sprint activo, barra de progreso (completed_points / total_points), días restantes, tareas bloqueadas. Si no hay sprint activo, muestra mensaje 'Sin sprint activo'.\n\nVelocityChart: recibe historial de sprints con velocity calculada. Renderizar gráfico de barras simple con velocidad por sprint. Usar una librería ligera (recharts o chart.js, añadir a package.json) o SVG puro.\n\nHook useProjectContext (frontend/src/hooks/useProjectContext.ts) ya stub: implementar llamada a projectService.getStatus(projectId) y retornar { status: ProjectStatusResult, isLoading, error }.\n\nFicheros: frontend/src/components/dashboard/SprintOverview.tsx, VelocityChart.tsx, frontend/src/hooks/useProjectContext.ts\nDependencias: projectService (frontend/src/services/projectService.ts).",
+          "acceptance_criteria": [
+            "SprintOverview renderiza la barra de progreso con porcentaje correcto",
+            "SprintOverview muestra '-- días' cuando days_remaining es null",
+            "VelocityChart renderiza sin errores con datos vacíos",
+            "useProjectContext llama al endpoint y actualiza estado correctamente"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.5,
+            "notes": "Dos componentes de visualización + un hook de datos. La IA genera los tres en un turno. El VelocityChart con recharts requiere instalar la dependencia y ajustar los tipos TypeScript."
+          },
+          "estimation_human": {
+            "hours": 5,
+            "notes": "El gráfico de velocidad requiere elegir librería, leer su doc, configurar el ResponsiveContainer y formatear los datos del sprint al formato que espera recharts. La barra de progreso CSS y el estado null/undefined también consumen tiempo."
+          }
+        },
+        {
+          "key": "PMCP-39",
+          "title": "Página de Tasks conectada al backend",
+          "description": "Implementar frontend/src/components/tasks/TaskCard.tsx y TaskList.tsx, y la página /tasks.\n\nTaskList: usa el hook useTasks (frontend/src/hooks/useTasks.ts, stub con throw Error) que llama taskService.listByProject(projectId). Renderiza lista de TaskCard agrupadas por status (columnas Kanban: backlog, todo, in_progress, in_review, done) o lista plana con filtros de status/priority.\n\nTaskCard: muestra title, priority (con color: critical=rojo, high=naranja, medium=amarillo, low=verde), estimated_points, jira_key (si existe, link externo a Jira). Botón de edición inline que llama PATCH /api/v1/tasks/{id}.\n\nHook useTasks: implementar { tasks, isLoading, error, create, update, remove } usando taskService (frontend/src/services/taskService.ts que ya llama a /api/v1/tasks).\n\nFicheros: frontend/src/components/tasks/TaskCard.tsx, TaskList.tsx, frontend/src/hooks/useTasks.ts",
+          "acceptance_criteria": [
+            "TaskList carga y muestra las tareas del proyecto seleccionado",
+            "Cambiar status en TaskCard llama PATCH /api/v1/tasks/{id} y actualiza la UI",
+            "TaskCard con jira_key muestra link clickable a Jira",
+            "useTasks.create() añade la nueva tarea a la lista sin recargar la página"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 2.0,
+            "notes": "Es la página con más interactividad: CRUD completo, agrupación Kanban por status, edición inline. La IA genera la estructura en un turno pero la edición inline optimista (actualizar UI antes de confirmar con el backend) suele requerir una corrección."
+          },
+          "estimation_human": {
+            "hours": 6,
+            "notes": "La vista Kanban (5 columnas) implica un layout CSS no trivial, el drag-and-drop para cambiar status requiere librería adicional, y la actualización optimista del estado local tras PATCH es un patrón que el senior debe implementar conscientemente."
+          }
+        },
+        {
+          "key": "PMCP-40",
+          "title": "Página de Reports con generación bajo demanda",
+          "description": "Implementar la página de reports en frontend/src/pages/ y conectarla al backend.\n\nLa página muestra tres botones: 'Generar informe de sprint', 'Estado del proyecto', 'Transcribir notas de reunión'. Cada botón llama al endpoint correspondiente en /api/v1/reports/: reportService.generateSprintReport(), reportService.generateStatusReport(), reportService.generateMeetingNotes().\n\nDurante la generación (que puede tardar varios segundos por el LLM) mostrar LoadingSpinner con mensaje 'Generando informe...'. Al completar, mostrar el contenido Markdown renderizado (usar react-markdown, añadir a package.json). Botón de descarga que llama GET /api/v1/reports/{id}/download/markdown.\n\nPara 'Notas de reunión': textarea donde el usuario pega la transcripción raw antes de enviar. El body incluye raw_input: string (campo GenerateReportCommand.raw_input).\n\nFicheros: frontend/src/pages/ (reports page), frontend/src/services/reportService.ts (stub a implementar)\nDependencias: reportService, react-markdown.",
+          "acceptance_criteria": [
+            "Pulsar 'Generar informe de sprint' muestra LoadingSpinner y luego el Markdown renderizado",
+            "El botón de descarga descarga el fichero .md correctamente",
+            "El formulario de 'Notas de reunión' envía el raw_input al backend",
+            "La página muestra error descriptivo si el backend retorna 500"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "Tres flujos similares (botón → loading → resultado). La IA genera el patrón en un turno con react-markdown. La descarga de fichero via blob URL es el único detalle específico."
+          },
+          "estimation_human": {
+            "hours": 4,
+            "notes": "El patrón loading-state por botón (no global) y el renderizado de Markdown con estilos (react-markdown necesita plugins para tablas y código) consumen tiempo. La descarga via Blob URL también requiere conocimiento específico."
+          }
+        },
+        {
+          "key": "PMCP-41",
+          "title": "PWA: manifest + service worker",
+          "description": "Configurar la app como Progressive Web App instalable. El fichero frontend/public/manifest.json ya existe con stub; completar con valores reales.\n\nmanifest.json: name='PM Copilot', short_name='PMCopilot', start_url='/', display='standalone', theme_color='#1a1a2e', background_color='#ffffff', icons con al menos 192x192 y 512x512 PNG en frontend/public/icons/.\n\nService Worker: configurar Vite PWA plugin (vite-plugin-pwa, añadir a package.json como devDependency). En vite.config.ts añadir VitePWA({registerType:'autoUpdate', workbox:{globPatterns:['**/*.{js,css,html,ico,png,svg}']}, manifest: ...}). El SW cachea todos los assets estáticos y las rutas de la app (shell offline básico).\n\nVerificar: en Chrome DevTools → Application → Manifest aparece correctamente; el botón 'Install' aparece en la barra de dirección; con la red offline la app carga (con datos cacheados en última sesión).\n\nFicheros: frontend/public/manifest.json, frontend/vite.config.ts (ya existe, añadir VitePWA), frontend/public/icons/\nDependencias: vite-plugin-pwa (devDependency en package.json).",
+          "acceptance_criteria": [
+            "Lighthouse PWA score ≥ 90 en modo producción (npm run build)",
+            "La app es instalable via Chrome 'Install app'",
+            "Con red offline tras primera visita, la shell de la app carga (aunque los datos fallen)",
+            "manifest.json tiene icons con las rutas correctas a los ficheros PNG"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "vite-plugin-pwa genera el Service Worker automáticamente con la config indicada. El manifest.json es trivial. El tiempo es para generar los iconos PNG en los dos tamaños requeridos."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "Fácil con vite-plugin-pwa, pero el senior necesita entender qué cachear en el Service Worker (no querer cachear llamadas API), generar los iconos en los tamaños correctos y verificar con Lighthouse."
+          }
+        }
+      ]
+    },
+    {
+      "key": "PMCP-42",
+      "title": "Calidad y despliegue",
+      "description": "Configuración de cobertura de tests, CI/CD con GitHub Actions, Dockerfiles para backend y frontend, y documentación de despliegue en Confluence.",
+      "acceptance_criteria": [
+        "pytest --cov retorna cobertura ≥ 80% para backend/src/",
+        "GitHub Actions CI pasa en cada push a main con tests + lint",
+        "docker build funciona para backend y frontend",
+        "La guía de despliegue en Confluence permite a un nuevo desarrollador desplegar en Railway"
+      ],
+      "tasks": [
+        {
+          "key": "PMCP-43",
+          "title": "Configurar pytest con cobertura mínima 80%",
+          "description": "Completar configuración en backend/pyproject.toml. Sección [tool.pytest.ini_options]: asyncio_mode='auto', testpaths=['tests'], markers=['integration: require external services']. Sección [tool.coverage.run]: source=['src'], omit=['*/migrations/*','*/conftest.py']. Sección [tool.coverage.report]: fail_under=80, show_missing=true.\n\nInstalar pytest-cov (ya en pyproject.toml como devDependency). Comando: pytest --cov=src --cov-report=term-missing --cov-fail-under=80.\n\nEliminar los pytest.skip() en todos los tests stub e implementar los tests marcados con # TODO en: tests/unit/domain/entities/test_task.py (test_fibonacci_points_valid, test_fibonacci_points_invalid, test_task_defaults), tests/unit/domain/services/ y tests/unit/application/use_cases/ — una vez implementados PMCP-12, PMCP-13, PMCP-17.\n\nFichero afectado: backend/pyproject.toml\nDependencias: pytest-cov (devDependency).",
+          "acceptance_criteria": [
+            "pytest --cov=src --cov-fail-under=80 pasa después de implementar PMCP-12, 13, 17",
+            "pytest -m 'not integration' pasa sin Docker arrancado",
+            "El informe de cobertura identifica las líneas no cubiertas en cada módulo",
+            "pytest -m integration pasa con make up y make db-init ejecutados"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "La config de pyproject.toml es mecánica. El trabajo real es identificar qué módulos están por debajo del 80% y añadir tests para llegar al umbral — depende del estado de implementación al llegar a este punto."
+          },
+          "estimation_human": {
+            "hours": 4,
+            "notes": "La configuración es trivial (0.5h) pero alcanzar el 80% de cobertura requiere analizar el reporte línea a línea y escribir tests adicionales para los paths no cubiertos. El senior tarda principalmente en eso."
+          }
+        },
+        {
+          "key": "PMCP-44",
+          "title": "GitHub Actions: CI con tests + lint",
+          "description": "Crear .github/workflows/ci.yml con dos jobs.\n\nJob 'lint': runs-on ubuntu-latest, steps: checkout, setup-python 3.12, pip install ruff mypy, ruff check backend/src/ --select E,W,F,I, mypy backend/src/ --ignore-missing-imports.\n\nJob 'test': needs: lint, runs-on ubuntu-latest, services: postgres (image: postgres:16-alpine, env: POSTGRES_DB/USER/PASSWORD, ports: 5432:5432, options: --health-cmd pg_isready), chromadb (image: chromadb/chroma:latest, ports: 8001:8000). Steps: checkout, setup-python 3.12, pip install -e '.[dev]' (desde backend/pyproject.toml), pytest -m 'not integration' --cov=src --cov-fail-under=80 (unit tests sin servicios externos), pytest -m integration (con servicios del job services).\n\nVariables de entorno en el job test: DATABASE_URL, CHROMADB_HOST, CHROMADB_PORT via env: block del workflow (no secrets — son valores de CI).\n\nFichero: .github/workflows/ci.yml",
+          "acceptance_criteria": [
+            "El workflow se ejecuta en cada push y pull_request a main",
+            "El job 'lint' falla si hay errores de ruff o mypy",
+            "El job 'test' ejecuta los tests unitarios sin servicios externos",
+            "El workflow completo pasa en una rama limpia del repositorio"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "La IA conoce la sintaxis de GitHub Actions y el patrón services: para PostgreSQL/ChromaDB. El workflow se genera en un turno. El único ajuste manual es verificar los health-check options para los services."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "El senior conoce GitHub Actions pero la sintaxis services: con health checks tiene matices (options: --health-cmd, --health-interval). El cacheado de pip y la configuración de mypy sin stubs también consumen algo de tiempo."
+          }
+        },
+        {
+          "key": "PMCP-45",
+          "title": "Dockerfile para backend y frontend",
+          "description": "Crear Dockerfile en backend/ con build multi-stage. Stage 'builder': FROM python:3.12-slim, WORKDIR /app, COPY pyproject.toml ., RUN pip install --no-cache-dir -e ., COPY src/ ./src/. Stage 'runtime': FROM python:3.12-slim, WORKDIR /app, COPY --from=builder /app /app, ENV PYTHONPATH=/app/src, EXPOSE 8000, CMD ['uvicorn', 'infrastructure.main:create_app', '--factory', '--host', '0.0.0.0', '--port', '8000'].\n\nCrear frontend/Dockerfile multi-stage. Stage 'builder': FROM node:20-alpine, WORKDIR /app, COPY package*.json ., RUN npm ci, COPY . ., RUN npm run build. Stage 'runtime': FROM nginx:alpine, COPY --from=builder /app/dist /usr/share/nginx/html, COPY nginx.conf /etc/nginx/conf.d/default.conf (nginx.conf con try_files $uri /index.html para React Router), EXPOSE 80.\n\nAñadir al docker-compose.yml (o docker-compose.prod.yml) los servicios backend y frontend usando las imágenes built.\n\nFicheros: backend/Dockerfile, frontend/Dockerfile, frontend/nginx.conf",
+          "acceptance_criteria": [
+            "docker build -t pmcopilot-backend backend/ completa sin errores",
+            "docker build -t pmcopilot-frontend frontend/ completa sin errores",
+            "docker run pmcopilot-backend retorna 200 en GET /health",
+            "docker run pmcopilot-frontend sirve la SPA en puerto 80 con React Router funcionando"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 0.5,
+            "notes": "Los dos Dockerfiles son patrones estándar que la IA genera correctamente. El nginx.conf con try_files para React Router SPA es el único punto no obvio. Un turno."
+          },
+          "estimation_human": {
+            "hours": 2,
+            "notes": "El senior conoce Docker multistage. El único punto no trivial es el PYTHONPATH en el stage runtime y el nginx.conf para SPA. Con algún ajuste de permisos y verificación de que uvicorn arranca con --factory: 2h."
+          }
+        },
+        {
+          "key": "PMCP-46",
+          "title": "Documentación de despliegue en Confluence",
+          "description": "Crear página 'Guía de despliegue en Railway' bajo '08. Documentación Técnica del Proyecto' en el espacio PBPMIA.\n\nContenido mínimo: (1) Prerrequisitos (cuenta Railway, variables de entorno necesarias), (2) Despliegue de PostgreSQL en Railway: crear nuevo proyecto, añadir plugin PostgreSQL, copiar DATABASE_URL al .env de producción, (3) Despliegue de ChromaDB en Railway: usar image chromadb/chroma:latest como servicio Docker, (4) Despliegue del backend: conectar repo GitHub, seleccionar Dockerfile, añadir todas las variables de entorno del .env.example con valores reales, (5) Despliegue del frontend en Vercel: conectar repo, build command 'npm run build', output directory 'dist', añadir VITE_API_URL apuntando al backend Railway, (6) Verificación post-despliegue: curl https://backend.railway.app/health.\n\nPublicar via ConfluenceAdapter.create_page() o scripts/confluence_client.py con parent_title='08. Documentación Técnica del Proyecto'.\n\nFichero: docs/DEPLOY.md (fuente de verdad local) + publicado en Confluence.",
+          "acceptance_criteria": [
+            "La página existe en Confluence bajo '08. Documentación Técnica del Proyecto'",
+            "Un desarrollador nuevo puede desplegar en Railway siguiendo la guía sin preguntas adicionales",
+            "docs/DEPLOY.md existe en el repositorio y coincide con la página de Confluence",
+            "La guía incluye los comandos exactos de verificación post-despliegue"
+          ],
+          "estimation_vibe_coding": {
+            "hours": 1.0,
+            "notes": "La guía la redacta la IA en Markdown en un turno y la publica via scripts/confluence_client.py que ya tenemos operativo. El tiempo extra es para verificar que los pasos son correctos con Railway real."
+          },
+          "estimation_human": {
+            "hours": 4,
+            "notes": "Escribir documentación de despliegue paso a paso que funcione de verdad requiere haberlo hecho al menos una vez con Railway real. El senior tarda en verificar cada paso, capturar la UI y redactar de forma que sea reproducible."
+          }
+        }
+      ]
+    }
+  ]
+}

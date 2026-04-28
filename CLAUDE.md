@@ -34,8 +34,8 @@ El objetivo es demostrar una metodología de desarrollo de software con IA donde
 - **GitHub** — código, PRs, issues
 
 ### Infraestructura
-- **Railway** — backend + PostgreSQL + ChromaDB
-- **Docker** — contenedores locales y producción
+- **Railway** — backend + PostgreSQL + ChromaDB (producción)
+- **Docker Compose** — entorno local: `make up` levanta PostgreSQL 16 + ChromaDB; `make db-init` aplica el DDL completo — `docs/ADR-006-infra-local.md`
 - **Circuit Breaker** en todas las integraciones externas — `docs/ADR-003-circuit-breaker.md`
 
 ## Estructura de Directorios Prevista
@@ -85,7 +85,11 @@ proyecto-04-pm-copilot/
 │   ├── ADR-004-pwa-first.md
 │   └── ADR-005-llm-router.md
 ├── scripts/
-│   └── setup_confluence.py
+│   ├── setup_confluence.py
+│   ├── setup_jira.py          # Crea proyecto PMCP, 9 épicas y 37 historias en Jira
+│   └── db_init.sql            # DDL completo (7 tablas, índices, triggers)
+├── docker-compose.yml         # PostgreSQL 16 + ChromaDB + pgAdmin (profile "tools")
+├── Makefile                   # make up / down / db-init / logs / db-shell / tools-up
 ├── CLAUDE.md
 ├── .env
 └── .gitignore
@@ -156,6 +160,8 @@ Ver `docs/DEFINITION_OF_DONE.md` para el checklist completo.
 
 | Servicio | Estado | Config |
 |----------|--------|--------|
+| PostgreSQL 16 | Activo (local) | `make up` + `make db-init`; `POSTGRES_*` en `.env`; 7 tablas creadas |
+| ChromaDB | Activo (local) | `make up`; puerto 8001; `CHROMADB_HOST/PORT` en `.env` |
 | Confluence | Activo | `CONFLUENCE_BASE_URL`, espacio `PBPMIA` |
 | Anthropic Claude | Activo | `ANTHROPIC_API_KEY` en `.env` |
 | Groq | Por configurar | `GROQ_API_KEY` en `.env` — tier gratuito disponible en console.groq.com |
@@ -175,6 +181,8 @@ Ver `docs/DEFINITION_OF_DONE.md` para el checklist completo.
 | DT-004 | Evaluar Groq vs Claude Haiku en cost/quality para clasificación | `ADR-005-llm-router.md` |
 | DT-005 | Métricas de coste acumulado por proveedor para optimizar routing rules | `ADR-005-llm-router.md` |
 | DT-006 | Gemini multimodal para análisis de diagramas de arquitectura | `ADR-005-llm-router.md` |
+| DT-007 | Crear `docker-compose.override.yml` al activar Railway para separar config local vs prod | `ADR-006-infra-local.md` |
+| DT-008 | Evaluar migrar índices trigram a búsqueda vectorial ChromaDB cuando chunks > 5.000 | `ADR-006-infra-local.md` |
 
 ## Skills Activos
 
