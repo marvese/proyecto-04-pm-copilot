@@ -153,10 +153,12 @@ Componente cross-cutting que implementa `LLMPort` enrutando al proveedor apropia
 
 ```
 LLMRouter
-  ├── task_classifier: determina complejidad de la tarea
-  ├── claude_adapter: para tareas complejas / razonamiento
-  ├── ollama_adapter: para tareas simples / repetitivas
-  └── circuit_breaker: fallback automático si Claude no responde
+  ├── task_classifier: determina LLMTaskType de la tarea
+  ├── claude_adapter: REASONING, GENERATION_LONG — calidad máxima (Anthropic)
+  ├── groq_adapter: CLASSIFICATION, EXTRACTION, SIMPLE_QA — velocidad máxima
+  ├── gemini_adapter: contextos muy largos, alternativa multimodal
+  ├── ollama_adapter: LLM_MODE=local y fallback final — sin coste
+  └── circuit_breaker: fallback automático entre proveedores (tenacity)
 ```
 
 Ver `docs/ADR-005-llm-router.md` para la lógica de routing.
@@ -261,3 +263,4 @@ React PWA
 | Circuit Breaker en integraciones | `ADR-003-circuit-breaker.md` |
 | PWA React primero, Flutter después | `ADR-004-pwa-first.md` |
 | LLM Router y embeddings | `ADR-005-llm-router.md` |
+| Infraestructura de desarrollo local | `ADR-006-infra-local.md` |

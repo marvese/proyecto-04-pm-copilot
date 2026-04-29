@@ -83,11 +83,18 @@ proyecto-04-pm-copilot/
 │   ├── ADR-002-hexagonal.md
 │   ├── ADR-003-circuit-breaker.md
 │   ├── ADR-004-pwa-first.md
-│   └── ADR-005-llm-router.md
+│   ├── ADR-005-llm-router.md
+│   └── ADR-006-infra-local.md
 ├── scripts/
-│   ├── setup_confluence.py
-│   ├── setup_jira.py          # Crea proyecto PMCP, 9 épicas y 37 historias en Jira
-│   └── db_init.sql            # DDL completo (7 tablas, índices, triggers)
+│   ├── setup_confluence.py                   # Setup inicial del espacio Confluence
+│   ├── setup_jira.py                         # Crea proyecto PMCP, 9 épicas y 37 historias en Jira
+│   ├── db_init.sql                           # DDL completo (7 tablas, índices, triggers)
+│   ├── confluence_client.py                  # Cliente reutilizable Confluence REST API
+│   ├── publish_prompts.py                    # Publica PROMPTS.md en Confluence
+│   ├── update_jira.py                        # Actualiza issues Jira desde jira_descriptions_complete.json
+│   ├── add_task_jira.py                      # Crea un issue Story en Jira con ADF completo
+│   ├── jira_descriptions.json                # Backlog: 9 épicas, 37+ historias, estimaciones
+│   └── jira_descriptions_complete.json       # Versión con prompts de implementación por historia
 ├── docker-compose.yml         # PostgreSQL 16 + ChromaDB + pgAdmin (profile "tools")
 ├── Makefile                   # make up / down / db-init / logs / db-shell / tools-up
 ├── CLAUDE.md

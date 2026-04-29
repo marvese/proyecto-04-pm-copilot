@@ -22,3 +22,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 - `Makefile` — targets: `make up/down/logs/ps/db-init/db-reset/db-shell/tools-up/tools-down/help`
 - `.env.example` — actualizado con todas las variables nuevas: `POSTGRES_*`, `CHROMADB_*`, `PGADMIN_*`, `LLM_MODE`, `SECRET_KEY`, `DEBUG`
 - `docs/ADR-006-infra-local.md` — decisiones de infraestructura local: Docker Compose vs bare metal, UUID vs BIGSERIAL, VARCHAR+CHECK vs CREATE TYPE, GIN trigram vs tsvector
+- `scripts/jira_descriptions.json` — backlog completo documentado: 9 épicas + 37 historias con descripción técnica, criterios de aceptación y estimaciones (37.8h vibe coding / 127.0h senior sin IA, ratio 3.4×)
+- `scripts/jira_descriptions_complete.json` — versión extendida con campo `prompt` (contexto + instrucción de implementación) para cada historia
+- `scripts/update_jira.py` — actualiza descripción ADF y story points en todos los issues de Jira desde `jira_descriptions_complete.json`; soporta `--dry-run` y `--key PMCP-X`; descubrimiento automático del campo Story Points (`customfield_10032`)
+- `scripts/add_task_jira.py` — crea un issue Story en Jira con descripción ADF completa (descripción, criterios de aceptación, estimaciones, prompt de implementación)
+- `scripts/confluence_client.py` — cliente Confluence reutilizable para publicar páginas via REST API con conversión markdown→storage y gestión de jerarquía
+- `scripts/publish_prompts.py` — publica `docs/PROMPTS.md` en el espacio Confluence `PBPMIA`, página `06. Biblioteca de Prompts`
+- **Jira PMCP-47** — nueva historia bajo PMCP-6: "Tabla llm_usage y logging de consumo por llamada" (3 SP); tabla PostgreSQL para registrar consumo real de cada llamada LLM con logging fire-and-forget en `ClaudeAdapter`
