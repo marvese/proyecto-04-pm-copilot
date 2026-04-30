@@ -149,7 +149,7 @@
             "iterations_estimated": 2,
             "actual_tokens": null,
             "actual_cost_usd": null,
-            "actual_iterations": null
+            "actual_iterations": 4
           },
           "story_points": 2
         }

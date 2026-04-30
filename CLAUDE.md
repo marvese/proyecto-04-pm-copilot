@@ -6,6 +6,9 @@
 
 El objetivo es demostrar una metodología de desarrollo de software con IA donde cada decisión, prompt y aprendizaje queda documentado.
 
+## Contextualización al iniciar sesión Cloud Code
+Al iniciar una nueva sesión ejecuta: docs/skills/session-start.md
+
 ## Stack Tecnológico
 
 ### Backend
@@ -121,13 +124,41 @@ proyecto-04-pm-copilot/
 - Tipos e interfaces en `PascalCase`
 - Servicios API en `camelCase`: `projectService`, `chatService`
 
+### Git Flow
+
+**Ramas permanentes**
+
+| Rama | Propósito |
+|------|-----------|
+| `master` | Código estable y publicable; solo recibe merges de `develop` al completar un conjunto estable de épicas |
+| `develop` | Integración continua; todas las features se mergean aquí |
+| `feature/epic-X-nombre` | Una rama por épica; se crea desde `develop` y se cierra en `develop` |
+
+**Flujo por épica**
+
+```
+git checkout develop
+git checkout -b feature/epic-6-llm-core   # nombre: epic-{PMCP-number}-{slug}
+
+# ... desarrollo y commits ...
+
+git checkout develop
+git merge --no-ff feature/epic-6-llm-core
+git branch -d feature/epic-6-llm-core
+```
+
+**Merge a master** — solo cuando un conjunto estable de épicas está integrado y los tests pasan en `develop`.
+
 ### Commits
-- Formato convencional: `<tipo>(<ámbito>): <descripción en imperativo>`
+
+- Formato: `<tipo>(PMCP-X): <descripción en imperativo>`
 - Tipos: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+- El ámbito es siempre el identificador Jira de la tarea (`PMCP-7`, `PMCP-12`, etc.)
 - Ejemplos:
-  - `feat(rag): add nomic-embed-text embeddings adapter`
-  - `feat(llm-router): implement circuit breaker with tenacity`
-  - `docs(adr): add ADR-006 for database migration strategy`
+  - `feat(PMCP-7): implement ClaudeAdapter with streaming support`
+  - `feat(PMCP-8): add LLMRouter with tenacity circuit breaker`
+  - `test(PMCP-9): add unit tests for LLMRouter fallback logic`
+  - `docs(PMCP-5): add verify_env.py and make verify target`
 
 ## Reglas de Trabajo
 
@@ -197,6 +228,7 @@ Los skills viven en `.claude/skills/` y se invocan con `/nombre-del-skill` o se 
 
 | Skill | Cuándo se activa | Fichero |
 |-------|-----------------|---------|
+| `session-start` | Al inicio de cada nueva sesión de Claude Code: lee contexto, verifica entorno Docker, identifica tarea activa. | `.claude/skills/session-start.md` |
 | `confluence-publisher` | Tras crear o actualizar documentación significativa (ADRs, lecciones aprendidas, prompts, docs técnica). Invocado desde otros skills como paso final de publicación. | `.claude/skills/confluence-publisher.md` |
 | `prompt-librarian` | Cuando se ha usado un prompt significativo durante el desarrollo (genera código, resuelve problema no trivial, produce documentación, es reutilizable). | `.claude/skills/prompt-librarian.md` |
 | `docs-updater` | Tras cualquier cambio significativo de arquitectura, dependencias, convenciones o decisiones técnicas. Incluye publicación en Confluence al final. | `.claude/skills/docs-updater.md` |

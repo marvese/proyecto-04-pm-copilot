@@ -29,3 +29,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 - `scripts/confluence_client.py` — cliente Confluence reutilizable para publicar páginas via REST API con conversión markdown→storage y gestión de jerarquía
 - `scripts/publish_prompts.py` — publica `docs/PROMPTS.md` en el espacio Confluence `PBPMIA`, página `06. Biblioteca de Prompts`
 - **Jira PMCP-47** — nueva historia bajo PMCP-6: "Tabla llm_usage y logging de consumo por llamada" (3 SP); tabla PostgreSQL para registrar consumo real de cada llamada LLM con logging fire-and-forget en `ClaudeAdapter`
+- **PMCP-5**: `scripts/verify_env.py` — verifica variables `.env`, conexión PostgreSQL (SELECT 1 + 7 tablas), heartbeat ChromaDB v2, Ollama con `nomic-embed-text`; `make verify` añadido al Makefile; épica PMCP-1 completada al 100%
+
+### Fixed
+- **PMCP-5**: `asyncpg.connect()` requiere scheme `postgresql://`; `DATABASE_URL` de SQLAlchemy usa `postgresql+asyncpg://` — se normaliza antes de conectar
+- **PMCP-5**: ChromaDB v2 depreca `/api/v1/heartbeat`; endpoint correcto es `/api/v2/heartbeat`

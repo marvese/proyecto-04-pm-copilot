@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: up down db-init logs tools-up tools-down ps help
+.PHONY: up down db-init db-reset db-shell logs tools-up tools-down ps verify help
 
 # Lee .env si existe (para variables en targets que las necesiten)
 -include .env
@@ -46,6 +46,13 @@ db-shell: ## Abre psql interactivo
 # Herramientas opcionales (pgAdmin)
 # ─────────────────────────────────────────
 
+verify: ## Verifica que todos los servicios están listos (PostgreSQL, ChromaDB, Ollama)
+	python3 scripts/verify_env.py
+
+# ─────────────────────────────────────────
+# Herramientas opcionales (pgAdmin)
+# ─────────────────────────────────────────
+
 tools-up: ## Arranca pgAdmin en http://localhost:5050
 	docker compose --profile tools up -d
 
@@ -54,6 +61,7 @@ tools-down: ## Para pgAdmin
 
 # ─────────────────────────────────────────
 # Ayuda
+# ─────────────────────────────────────────
 # ─────────────────────────────────────────
 
 help: ## Muestra esta ayuda
