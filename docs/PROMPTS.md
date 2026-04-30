@@ -335,9 +335,178 @@ Añade al Makefile:
 
 ---
 
+### 3.3 EstimationService + EstimateTaskUseCase + endpoint REST (PMCP-11)
+
+**Fecha**: 2026-04-30  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: Caso de uso vertical completo de estimación: `EstimationService` con Fibonacci + RAG, `EstimateTaskUseCase`, `POST /api/v1/estimate` y `POST /api/v1/estimate/breakdown`. 12 tests unitarios. Suite: 30 passed.  
+**Ficheros generados/afectados**:
+- `backend/src/domain/services/estimation_service.py`
+- `backend/src/domain/entities/estimation.py` (`is_high_confidence()`)
+- `backend/src/application/use_cases/estimate_task_use_case.py`
+- `backend/src/adapters/primary/api/estimate_router.py`
+- `backend/src/infrastructure/container.py` (propiedad `estimate_task_use_case`)
+- `backend/tests/unit/domain/services/test_estimation_service.py`
+- `backend/tests/unit/application/use_cases/test_estimate_task_use_case.py`
+
+**Prompt**:
+
+```
+Implementa la épica PMCP-11 (primer caso de uso vertical: EstimateTask).
+
+PMCP-12 — EstimationService en backend/src/domain/services/estimation_service.py:
+- estimate(task, similar_chunks) -> Estimation: construye prompt con escala Fibonacci
+  (1,2,3,5,8,13,21), incluye chunks similares como contexto, llama al LLM con
+  json_mode=True y task_type=REASONING. Parsea JSON: points, confidence, breakdown,
+  rationale. Snappea points al Fibonacci más cercano con min(FIBONACCI, key=lambda x: abs(x-p)).
+  Clamp confidence en [0,1].
+- breakdown_epic(epic_task) -> list[Task]: descompone épica en ≤15 stories usando
+  task_type=GENERATION_LONG. Parsea lista JSON de títulos/descripciones.
+- Estimation.is_high_confidence(): retorna True si confidence >= 0.7
+
+PMCP-13 — EstimateTaskUseCase en backend/src/application/use_cases/estimate_task_use_case.py:
+- execute(command: EstimateTaskCommand) -> EstimateTaskResult
+- Flujo: embed(title+description) → vector_store.search(collection="tasks", top_k=5,
+  filter=project_id) → Task transiente → EstimationService.estimate()
+- Task es transiente (no persiste hasta PMCP-27)
+
+PMCP-14 — Endpoints en backend/src/adapters/primary/api/estimate_router.py:
+- POST /api/v1/estimate: recibe {project_id, title, description}, retorna estimación
+- POST /api/v1/estimate/breakdown: recibe {project_id, title, description}, retorna lista
+- DI via Depends() desde container. 422 si LLM devuelve JSON inválido (ValueError)
+
+PMCP-15 — Tests unitarios (sin llamadas reales):
+- 9 tests para EstimationService: Fibonacci snap, JSON inválido, confidence clamp,
+  similar_chunks en prompt, max 15 stories, tipos de output
+- 3 tests para EstimateTaskUseCase: embed llamado con title+description, search con project_id,
+  resultado contiene task_id y estimation válida
+```
+
+**Notas**:
+- `min(FIBONACCI_POINTS, key=lambda x: abs(x - points))` es la forma idiomática de snap-to-nearest; maneja cualquier valor devuelto por el LLM incluyendo 0 o negativos.
+- El prompt de sistema de EstimationService incluye los `similar_chunks` formateados como `[source] content[:300]` — truncar a 300 caracteres evita exceder el contexto del LLM en proyectos con chunks grandes.
+- Si el LLM devuelve JSON inválido, `estimate()` lanza `ValueError` que el router convierte en 422. El criterio de aceptación está en `DEFINITION_OF_DONE.md`.
+- `breakdown_epic()` usa `GENERATION_LONG` en lugar de `REASONING` porque genera texto extenso (lista de historias), no un razonamiento compacto.
+- Reutilizable en: cualquier caso de uso que necesite output JSON estructurado del LLM — el patrón `json_mode=True` + `try/except json.JSONDecodeError` + fallback 422 es replicable.
+- No usar cuando: la estimación necesita consenso de equipo o historial de velocidad real — el LLM solo tiene acceso a los chunks indexados.
+
+---
+
+### 3.4 Chat API REST + WebSocket streaming con RAG (PMCP-16/17/18)
+
+**Fecha**: 2026-05-01  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: `QueryProjectStatusUseCase` funcional, store en memoria para sesiones/mensajes, WebSocket handler con RAG + streaming de tokens. 10 tests unitarios. Suite: 40 passed.  
+**Ficheros generados/afectados**:
+- `backend/src/domain/entities/project.py` (`Sprint.is_active()`, `Project.active_sprint()`)
+- `backend/src/application/use_cases/query_project_status_use_case.py`
+- `backend/src/adapters/primary/api/chat_router.py`
+- `backend/src/adapters/primary/websocket/chat_ws_handler.py`
+- `backend/tests/unit/application/use_cases/test_query_project_status_use_case.py`
+
+**Prompt**:
+
+```
+Implementa la épica PMCP-16 (Chat con streaming).
+
+PMCP-17 — QueryProjectStatusUseCase:
+- execute(project_id) -> ProjectStatusResult
+- completed_points: suma de estimated_points de tareas con status=DONE
+- remaining_points: suma del resto
+- blocked_task_count: tareas con status=IN_REVIEW y priority IN {HIGH, CRITICAL}
+- days_remaining: (sprint.end_date - now).days, nunca negativo, None si no hay sprint activo
+- Sprint.is_active(): status == SprintStatus.ACTIVE
+- Project.active_sprint(sprints): next((s for s in sprints if s.is_active()), None)
+- 10 tests unitarios en 3 clases: TestPointsAggregation, TestBlockedTaskCount, TestActiveSprint
+
+PMCP-18 — Chat API REST + WebSocket streaming:
+- chat_router.py: store en memoria _sessions/_messages (placeholder hasta PMCP-27)
+  POST /api/v1/chat/sessions, POST /sessions/{id}/messages → {message_id, stream_url},
+  GET /sessions/{id}/messages. Helpers: get_pending_message(), save_assistant_response()
+- chat_ws_handler.py: WebSocket en /api/v1/chat/stream/{message_id}
+  1. get_pending_message(message_id) → error+close si no existe
+  2. embed(content) → vector_store.search(collection="tasks", top_k=3, filter=project_id)
+     — wrap en try/except para que el chat funcione aunque el vector store esté vacío
+  3. Construir prompt: "Project context:\n{context}\n\nUser: {content}"
+  4. LLMRequest(task_type=SIMPLE_QA, max_tokens=1024, temperature=0.5)
+  5. async for token in llm_router.stream(): send_json({"type":"token","content":token})
+  6. save_assistant_response(); send_json({"type":"done","sources":[...]})
+```
+
+**Notas**:
+- El store en memoria (`_sessions`, `_messages` como dicts a nivel módulo) es un placeholder consciente, no una decisión de diseño. El comentario `# In-memory store — replaced by PostgreSQL adapter in PMCP-27` lo deja claro en el código.
+- La RAG retrieval está en un `try/except Exception` separado: si ChromaDB no está disponible o la colección está vacía, el chat sigue funcionando sin contexto. Los errores se logean como `WARNING`, no `ERROR`.
+- `save_assistant_response()` crea un mensaje nuevo con `role="assistant"` en lugar de mutar el mensaje de usuario — mantiene consistencia con el modelo de datos de chat_sessions.
+- El `system` prompt fijo (`_SYSTEM_PROMPT`) define el rol del asistente; el contexto RAG va en el `prompt` del usuario, no en el system. Esto mantiene separación entre instrucciones del sistema y contexto dinámico.
+- Reutilizable en: cualquier handler WebSocket de streaming — el patrón `accept → validate → build_context → stream_tokens → send_done` es el esqueleto estándar.
+- No usar cuando: el proyecto requiere persistencia de sesiones entre reinicios — este store se pierde en cada restart.
+
+---
+
 ## 4. Prompts de Desarrollo Frontend
 
-*[Añadir prompts de desarrollo frontend aquí]*
+### 4.1 useCopilotChat hook + componentes Chat (PMCP-19/20)
+
+**Fecha**: 2026-05-01  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: Hook `useCopilotChat` con gestión optimista de mensajes + WebSocket, y componentes `ChatInput`, `MessageBubble`, `ChatWindow`, `ChatPage` completamente funcionales.  
+**Ficheros generados/afectados**:
+- `frontend/src/services/chatService.ts`
+- `frontend/src/hooks/useCopilotChat.ts`
+- `frontend/src/hooks/useProjectContext.ts` (stub sin throws)
+- `frontend/src/components/chat/ChatInput.tsx`
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/components/chat/ChatWindow.tsx`
+- `frontend/src/components/ui/LoadingSpinner.tsx`
+- `frontend/src/pages/ChatPage.tsx`
+
+**Prompt**:
+
+```
+Implementa PMCP-19 y PMCP-20 (frontend del chat con streaming).
+
+PMCP-19 — chatService.ts + useCopilotChat hook:
+chatService:
+- API_BASE desde import.meta.env.VITE_API_URL ?? "http://localhost:8080"
+- WS_BASE = API_BASE.replace(/^http/, "ws")
+- createSession(projectId), listSessions(), sendMessage(sessionId, content),
+  getMessages(sessionId) — todos via fetch con error si !res.ok
+- streamResponse(messageId, onToken, onDone, onError): abre WebSocket,
+  parsea JSON de cada evento, despacha a callbacks
+
+useCopilotChat():
+- Estado: messages[], session, isStreaming, sources[]
+- startSession(projectId): POST → setSession, clearMessages
+- sendMessage(content):
+  1. Añadir mensaje user al estado inmediatamente (optimista)
+  2. Añadir placeholder assistant con content=""
+  3. POST sendMessage → obtener message_id
+  4. Abrir WebSocket via chatService.streamResponse()
+  5. onToken: actualizar content del placeholder acumulando tokens
+  6. onDone: setSources, setIsStreaming(false), ws.close()
+  7. onError: content="Error: {detail}", setIsStreaming(false)
+- clearMessages(): reset messages y sources
+
+PMCP-20 — Componentes React (inline styles, sin CSS framework):
+- LoadingSpinner({size, label}): div circular con animation CSS "@keyframes pmcp-spin"
+- MessageBubble({message}): burbuja con justify flex-end para user, flex-start para assistant;
+  cursor parpadeante (▋) cuando content está vacío (streaming en progreso)
+- ChatInput({onSend, disabled}): textarea auto-resize via scrollHeight, Enter envía,
+  Shift+Enter nueva línea, botón Send deshabilitado si disabled o content vacío
+- ChatWindow({messages, isStreaming, onSend}): lista de MessageBubble + auto-scroll
+  via useRef+scrollIntoView, LoadingSpinner cuando isStreaming, ChatInput al fondo
+- ChatPage: si !session → pantalla con input de Project ID UUID + botón Start Chat;
+  si session → header azul + ChatWindow a pantalla completa
+```
+
+**Notas**:
+- El patrón de mensajes optimistas (añadir user + placeholder assistant antes de la llamada HTTP) evita el salto visual que ocurriría esperando el primer token.
+- `useRef` para el WebSocket (`wsRef`) en lugar de estado — los WebSockets son recursos externos, no parte del estado de render. Cerrar el WS anterior antes de abrir uno nuevo evita leaks si el usuario envía mensajes rápido.
+- Sin dependencia de librería de Markdown para el MVP — `white-space: pre-wrap` renderiza saltos de línea del LLM correctamente. Añadir `react-markdown` cuando el formato de respuestas lo justifique.
+- `useProjectContext` se implementó como stub sin throws (retorna estado vacío) en lugar de conectar al backend — desbloquea ChatPage sin necesitar PMCP-27 (persistencia).
+- `VITE_API_URL` en `.env` del frontend apunta a `http://localhost:8080`; en producción (Vercel) se configura como variable de entorno apuntando al backend en Railway.
+- Reutilizable en: cualquier interfaz de chat con streaming WebSocket — el hook es independiente del dominio, solo necesita adaptar `chatService`.
+- No usar cuando: la interfaz necesita historial persistente entre sesiones — el hook almacena mensajes solo en memoria React.
 
 ---
 
@@ -375,6 +544,52 @@ Restricciones:
 - La primera iteración alcanzó 81% de cobertura porque `stream()` no estaba cubierto. Se añadió la clase `TestStreaming` con 3 tests para llegar a 98%.
 - Los generators async para mocking de `stream()` requieren definir funciones `async def` que hagan `yield`, no `AsyncMock` directamente — `AsyncMock` no soporta `async for` sobre su return value por defecto.
 - `retry_attempts=1` en el constructor del `LLMRouter` es el patrón para desactivar los sleeps de tenacity en tests sin mockear el módulo entero.
+
+---
+
+### 5.2 Tests unitarios QueryProjectStatusUseCase — 3 clases, 10 tests (PMCP-17)
+
+**Fecha**: 2026-05-01  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: `test_query_project_status_use_case.py` con 10 tests en 3 clases. Cubre agregación de puntos, tareas bloqueadas y gestión del sprint activo incluyendo fechas naive/aware y resultado nunca negativo.  
+**Ficheros generados/afectados**: `backend/tests/unit/application/use_cases/test_query_project_status_use_case.py`
+
+**Prompt**:
+
+```
+Escribe tests unitarios para QueryProjectStatusUseCase en
+tests/unit/application/use_cases/test_query_project_status_use_case.py.
+
+Helpers locales (no fixtures globales):
+- make_task(project_id, status, priority, points) -> Task con campo jira_sync_status
+- make_sprint(project_id, status, name, end_date) -> Sprint
+- make_use_case(tasks, sprint) -> QueryProjectStatusUseCase con repos como AsyncMock
+
+Clases de test:
+1. TestPointsAggregation:
+   - test_completed_and_remaining_points: 2 DONE (8p) + 2 no-DONE (10p) → totales correctos
+   - test_none_points_treated_as_zero: estimated_points=None → 0
+   - test_empty_project_returns_zeros: sin tareas → 0,0,0
+
+2. TestBlockedTaskCount:
+   - test_in_review_high_priority_counts_as_blocked: IN_REVIEW+HIGH y IN_REVIEW+CRITICAL
+     cuentan; IN_REVIEW+MEDIUM y IN_PROGRESS+HIGH no cuentan
+   - test_no_blocked_tasks: DONE+CRITICAL y IN_REVIEW+LOW → blocked=0
+
+3. TestActiveSprint:
+   - test_active_sprint_name_returned
+   - test_no_active_sprint_returns_none: days_remaining=None, active_sprint_name=None
+   - test_days_remaining_computed_correctly: end_date = now+5.5d → days_remaining=5
+     (usar +12h buffer para evitar que timedelta.days truncue a 4)
+   - test_days_remaining_never_negative: end_date en el pasado → days_remaining=0
+   - test_naive_end_date_handled: datetime sin tzinfo se normaliza a UTC
+```
+
+**Notas**:
+- `timedelta.days` trunca hacia abajo (floor), no redondea — `now + timedelta(days=5)` da 4 si hay microsegundos de diferencia entre la construcción del end_date y la ejecución del use case. Solución: añadir buffer de `timedelta(hours=12)` al end_date en el test.
+- Los helpers locales (`make_task`, `make_sprint`, `make_use_case`) son preferibles a fixtures en conftest para tests de use cases: hacen el test autocontenido y evitan dependencias ocultas con el scope de fixtures globales.
+- `AsyncMock(spec=TaskRepositoryPort)` + `return_value` directamente — no necesita configuración adicional porque el use case solo llama `list_by_project` y `get_active`.
+- Reutilizable en: cualquier use case que agregue datos de repositorios — el patrón `make_X` + `make_use_case` + clase de test por aspecto funciona en todos los contextos similares.
 
 ---
 
