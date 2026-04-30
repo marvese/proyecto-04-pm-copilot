@@ -30,6 +30,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 - `scripts/publish_prompts.py` — publica `docs/PROMPTS.md` en el espacio Confluence `PBPMIA`, página `06. Biblioteca de Prompts`
 - **Jira PMCP-47** — nueva historia bajo PMCP-6: "Tabla llm_usage y logging de consumo por llamada" (3 SP); tabla PostgreSQL para registrar consumo real de cada llamada LLM con logging fire-and-forget en `ClaudeAdapter`
 - **PMCP-5**: `scripts/verify_env.py` — verifica variables `.env`, conexión PostgreSQL (SELECT 1 + 7 tablas), heartbeat ChromaDB v2, Ollama con `nomic-embed-text`; `make verify` añadido al Makefile; épica PMCP-1 completada al 100%
+- **PMCP-7**: `ClaudeAdapter` implementado — `complete()` con `json_mode`, `stream()` via `messages.stream()`, `health_check()` con ping a Haiku; helper `_build_kwargs` centraliza construcción de parámetros
+- **PMCP-8**: `LLMRouter` refactorizado — `retry_attempts` configurable (permite `=1` en tests para evitar backoff), `_try_providers()` separado del retry loop; routing: REASONING→Claude→Gemini→Ollama, CLASSIFICATION→Groq→Ollama→Claude
+- **PMCP-9**: 14 tests unitarios del `LLMRouter` con `AsyncMock`, 98% cobertura — cubre LOCAL/HYBRID, fallback entre proveedores, streaming con fallo y recuperación, health check; sin llamadas reales a APIs
+- **PMCP-10**: `OllamaLLMAdapter` implementado — `complete()` y `stream()` via `httpx` puro (POST `/api/chat`), streaming por NDJSON line-by-line, `health_check()` via GET `/api/tags`; modelo por defecto `llama3.2`
 
 ### Fixed
 - **PMCP-5**: `asyncpg.connect()` requiere scheme `postgresql://`; `DATABASE_URL` de SQLAlchemy usa `postgresql+asyncpg://` — se normaliza antes de conectar

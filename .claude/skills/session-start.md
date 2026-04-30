@@ -41,3 +41,6 @@ Al inicio de cada nueva sesión de Claude Code en este proyecto.
 3. Pregunta al usuario si quiere:
    - Actualizar Confluence: python3 scripts/confluence_client.py
    - Actualizar Jira con métricas reales: python3 scripts/update_jira.py
+
+4. Actualizar los promts si se ha ejecutado algún prompt relevante:
+   - Registra el prompt utilizado en docs/PROMPTS.md

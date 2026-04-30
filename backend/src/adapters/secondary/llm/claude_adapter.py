@@ -21,16 +21,43 @@ class ClaudeAdapter(LLMPort):
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._model = model
 
+    def _build_kwargs(self, request: LLMRequest) -> dict:
+        system = request.system or ""
+        if request.json_mode:
+            json_instruction = "Respond only with valid JSON. Do not include any text outside the JSON."
+            system = f"{system}\n{json_instruction}".strip()
+
+        kwargs: dict = {
+            "model": self._model,
+            "max_tokens": request.max_tokens,
+            "messages": [{"role": "user", "content": request.prompt}],
+        }
+        if system:
+            kwargs["system"] = system
+        return kwargs
+
     async def complete(self, request: LLMRequest) -> LLMResponse:
-        # TODO: implement — call self._client.messages.create()
-        # Apply circuit breaker via tenacity (done in LLMRouter wrapper)
-        raise NotImplementedError
+        response = await self._client.messages.create(**self._build_kwargs(request))
+        return LLMResponse(
+            content=response.content[0].text,
+            model=response.model,
+            provider="anthropic",
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+        )
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[str]:
-        # TODO: implement — use self._client.messages.stream() context manager
-        raise NotImplementedError
-        yield  # make this a generator stub
+        async with self._client.messages.stream(**self._build_kwargs(request)) as s:
+            async for token in s.text_stream:
+                yield token
 
     async def health_check(self) -> bool:
-        # TODO: implement — lightweight ping to Anthropic API
-        raise NotImplementedError
+        try:
+            await self._client.messages.create(
+                model=self.HAIKU_MODEL,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            return True
+        except Exception:
+            return False

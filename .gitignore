@@ -1,1 +1,13 @@
+# Secrets
 .env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Tests & coverage
+.pytest_cache/
+.coverage
+htmlcov/
