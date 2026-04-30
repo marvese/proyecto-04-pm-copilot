@@ -1,0 +1,212 @@
+# Runbook — PM Copilot
+
+Referencia operacional del día a día: comandos de desarrollo, flujo Git/Jira, tests y solución de problemas conocidos.
+
+---
+
+## Comandos diarios del Makefile
+
+```bash
+make up        # arranca PostgreSQL 16 + ChromaDB en segundo plano
+make down      # para los contenedores (los volúmenes persisten)
+make verify    # verifica .env, PostgreSQL (7 tablas), ChromaDB v2 y Ollama
+make logs      # sigue los logs de todos los servicios
+make ps        # muestra estado de los contenedores
+
+make db-init   # aplica scripts/db_init.sql (idempotente)
+make db-reset  # DESTRUCTIVO: borra volúmenes y recrea la BD
+make db-shell  # psql interactivo
+
+make tools-up  # pgAdmin en http://localhost:5050
+make tools-down
+make help      # lista todos los targets con descripción
+```
+
+---
+
+## Flujo de trabajo por épica (Git Flow)
+
+```bash
+# 1. Partir siempre de develop actualizado
+git checkout develop
+git pull origin develop
+
+# 2. Crear rama para la épica
+git checkout -b feature/epic-6-llm-core
+
+# 3. Commits con convención PMCP-X
+git commit -m "feat(PMCP-7): implement ClaudeAdapter with streaming"
+git commit -m "test(PMCP-9): add LLMRouter unit tests, 98% coverage"
+
+# 4. Al terminar la épica, mergear a develop
+git checkout develop
+git merge --no-ff feature/epic-6-llm-core
+git branch -d feature/epic-6-llm-core
+
+# 5. Merge a master solo cuando hay un conjunto estable de épicas
+git checkout master
+git merge --no-ff develop
+git push origin master
+```
+
+**Convención de commits**: `<tipo>(PMCP-X): <descripción en imperativo>`
+Tipos: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+
+---
+
+## Flujo de trabajo con Jira
+
+Al terminar una tarea:
+
+```bash
+# Transicionar a Done via API
+source .env
+curl -s -o /dev/null -w "%{http_code}" \
+  -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+  -X POST -H "Content-Type: application/json" \
+  -d '{"transition":{"id":"31"}}' \
+  "$JIRA_URL/rest/api/3/issue/PMCP-XX/transitions"
+# 204 = éxito
+
+# IDs de transición del proyecto PMCP:
+# 11 → Por hacer | 21 → En curso | 31 → Finalizada (Done)
+```
+
+Actualizar descripciones y story points desde el JSON del backlog:
+
+```bash
+python3 scripts/update_jira.py              # actualiza todos los issues
+python3 scripts/update_jira.py --key PMCP-7 # actualiza solo uno
+python3 scripts/update_jira.py --dry-run    # previsualiza sin modificar
+```
+
+---
+
+## Ejecutar tests
+
+### Tests unitarios (sin red, sin Docker)
+
+```bash
+cd backend
+python3 -m pytest -m "not integration" -v
+```
+
+### Tests de integración (requieren PostgreSQL + ChromaDB activos)
+
+```bash
+make up  # asegúrate de que los servicios están corriendo
+cd backend
+python3 -m pytest -m integration -v
+```
+
+### Con cobertura
+
+```bash
+python3 -m pytest -m "not integration" --cov=src --cov-report=term-missing
+```
+
+Cobertura mínima requerida: **80%** (configurado en `pyproject.toml`).
+
+### Tests del LLMRouter únicamente
+
+```bash
+python3 -m pytest tests/unit/infrastructure/test_llm_router.py -v
+```
+
+---
+
+## Actualizar Confluence
+
+```bash
+# Publicar biblioteca de prompts
+python3 scripts/publish_prompts.py
+
+# Publicar cualquier Markdown como página Confluence
+python3 - <<'EOF'
+import sys; sys.path.insert(0, "scripts")
+from confluence_client import ConfluenceClient
+client = ConfluenceClient.from_env()
+md = open("docs/MI_DOCUMENTO.md").read()
+page = client.publish_markdown("Título de la página", md, "08. Documentación Técnica del Proyecto")
+print("✓", page.get("_links", {}).get("webui", ""))
+EOF
+```
+
+---
+
+## Problemas conocidos y soluciones
+
+### asyncpg rechaza el scheme de SQLAlchemy
+
+**Síntoma**: `invalid DSN: scheme is expected to be either "postgresql" or "postgres"`
+
+**Causa**: `DATABASE_URL` usa el formato SQLAlchemy `postgresql+asyncpg://...` pero `asyncpg.connect()` solo acepta `postgresql://`.
+
+**Solución**:
+```python
+asyncpg_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+conn = await asyncpg.connect(asyncpg_url)
+```
+
+---
+
+### ChromaDB v2 devuelve 410 en `/api/v1/heartbeat`
+
+**Síntoma**: `HTTP 410` al hacer GET a `/api/v1/heartbeat`
+
+**Causa**: A partir de ChromaDB v0.5+ la v1 de la API está deprecada.
+
+**Solución**: Usar `/api/v2/heartbeat`. Ejemplo:
+```bash
+curl http://localhost:8001/api/v2/heartbeat
+# {"nanosecond heartbeat": ...}
+```
+
+---
+
+### Jira custom fields — IDs de esta instancia
+
+Los IDs de campos personalizados son específicos de cada instancia Atlassian:
+
+| Campo | ID en PMCP |
+|---|---|
+| Epic Link | `customfield_10014` |
+| Story Points | `customfield_10032` |
+
+Están documentados en `.env` como `JIRA_FIELD_EPIC_LINK` y `JIRA_FIELD_STORY_POINTS`.
+
+Si cambian (por ejemplo, al migrar instancias), actualiza el `.env` y re-ejecuta `scripts/update_jira.py`.
+
+---
+
+### Docker falla en WSL2: "permission denied" o "cannot connect to daemon"
+
+**Síntoma**: `make up` devuelve `permission denied while trying to connect to the Docker daemon`
+
+**Solución**:
+```bash
+# Recargar el grupo docker en la sesión actual (sin cerrar el terminal)
+newgrp docker
+
+# Si el problema persiste, verificar que el usuario está en el grupo:
+groups | grep docker
+
+# Si no aparece:
+sudo usermod -aG docker $USER
+# Luego cerrar y reabrir la sesión WSL2
+```
+
+---
+
+### PostgreSQL no arranca o da error de autenticación
+
+**Síntoma**: `make db-init` falla con `FATAL: password authentication failed`
+
+**Causa**: El `.env` tiene credenciales que no coinciden con el volumen de datos existente.
+
+**Solución** (si no hay datos importantes):
+```bash
+make db-reset  # elimina el volumen y recrea la BD con las credenciales actuales
+```
+
+**Solución** (si hay datos que preservar): ajustar `POSTGRES_PASSWORD` en `.env` para que coincida con el volumen existente.
