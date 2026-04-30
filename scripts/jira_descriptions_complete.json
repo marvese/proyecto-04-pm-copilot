@@ -363,7 +363,7 @@
             "iterations_estimated": 3,
             "actual_tokens": null,
             "actual_cost_usd": null,
-            "actual_iterations": null
+            "actual_iterations": 1
           },
           "story_points": 8
         },
@@ -400,7 +400,7 @@
             "iterations_estimated": 2,
             "actual_tokens": null,
             "actual_cost_usd": null,
-            "actual_iterations": null
+            "actual_iterations": 1
           },
           "story_points": 2
         },
@@ -437,7 +437,7 @@
             "iterations_estimated": 2,
             "actual_tokens": null,
             "actual_cost_usd": null,
-            "actual_iterations": null
+            "actual_iterations": 1
           },
           "story_points": 3
         },
@@ -473,7 +473,7 @@
             "iterations_estimated": 3,
             "actual_tokens": null,
             "actual_cost_usd": null,
-            "actual_iterations": null
+            "actual_iterations": 2
           },
           "story_points": 2
         }

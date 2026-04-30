@@ -34,6 +34,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 - **PMCP-8**: `LLMRouter` refactorizado — `retry_attempts` configurable (permite `=1` en tests para evitar backoff), `_try_providers()` separado del retry loop; routing: REASONING→Claude→Gemini→Ollama, CLASSIFICATION→Groq→Ollama→Claude
 - **PMCP-9**: 14 tests unitarios del `LLMRouter` con `AsyncMock`, 98% cobertura — cubre LOCAL/HYBRID, fallback entre proveedores, streaming con fallo y recuperación, health check; sin llamadas reales a APIs
 - **PMCP-10**: `OllamaLLMAdapter` implementado — `complete()` y `stream()` via `httpx` puro (POST `/api/chat`), streaming por NDJSON line-by-line, `health_check()` via GET `/api/tags`; modelo por defecto `llama3.2`
+- **PMCP-12**: `EstimationService` — `estimate()` con prompt Fibonacci + similar chunks + `json_mode`, snap a Fibonacci más cercano, clamp confidence [0,1]; `breakdown_epic()` descompone épica en ≤15 stories; `Estimation.is_high_confidence()` threshold 0.7
+- **PMCP-13**: `EstimateTaskUseCase` — `embed(title+description)` → `vector_store.search()` → `EstimationService.estimate()`; Task transient (persistencia pendiente PMCP-27)
+- **PMCP-14**: `POST /api/v1/estimate` y `POST /api/v1/estimate/breakdown` funcionales; DI via `Depends()` desde container; 422 si LLM retorna JSON inválido
+- **PMCP-15**: 12 tests unitarios (9 `EstimationService` + 3 `EstimateTaskUseCase`); cubre Fibonacci snap, JSON inválido, similar_chunks en prompt, max 15 stories, embed y search; suite completa: 30 passed, 4 skipped
 
 ### Fixed
 - **PMCP-5**: `asyncpg.connect()` requiere scheme `postgresql://`; `DATABASE_URL` de SQLAlchemy usa `postgresql+asyncpg://` — se normaliza antes de conectar
