@@ -102,5 +102,13 @@ class Container:
             return None
         return GitHubAdapter(token=self._cfg.github_token)
 
+    @property
+    def estimate_task_use_case(self) -> EstimateTaskUseCase:
+        return EstimateTaskUseCase(
+            llm=self.llm_router,
+            embedding=self.embedding,
+            vector_store=self.vector_store,
+        )
+
 
 container = Container()

@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useCallback } from "react";
 import type { Project, Sprint } from "../types/project";
-import { projectService } from "../services/projectService";
 
 interface UseProjectContextReturn {
   project: Project | null;
@@ -11,9 +10,13 @@ interface UseProjectContextReturn {
 }
 
 export function useProjectContext(): UseProjectContextReturn {
-  // TODO: implement
-  // - Load projects on mount
-  // - selectedProjectId persisted in localStorage
-  // - Fetch active sprint when project changes
-  throw new Error("Not implemented");
+  const [projects] = useState<Project[]>([]);
+  const [project] = useState<Project | null>(null);
+  const [activeSprint] = useState<Sprint | null>(null);
+  const [isLoading] = useState(false);
+
+  // TODO PMCP-27: load projects from projectService, persist selectedProjectId in localStorage
+  const selectProject = useCallback((_projectId: string) => {}, []);
+
+  return { project, activeSprint, projects, isLoading, selectProject };
 }
