@@ -34,5 +34,4 @@ class Estimation:
     created_at: datetime = field(default_factory=datetime.utcnow)
 
     def is_high_confidence(self) -> bool:
-        # TODO: implement — threshold at 0.7
-        raise NotImplementedError
+        return self.confidence >= 0.7
