@@ -156,6 +156,85 @@ Usa la API REST /wiki/rest/api/content con autenticación básica (email + API t
 
 ## 3. Prompts de Desarrollo Backend
 
+### 3.1 Script de verificación del entorno (verify_env.py)
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: `scripts/verify_env.py` con 4 grupos de checks (variables .env, PostgreSQL+tablas, ChromaDB, LLM provider), salida ✓/✗ coloreada, exit code 0/1. Target `make verify` añadido al Makefile.
+**Ficheros generados/afectados**: `scripts/verify_env.py`, `Makefile`
+
+**Prompt**:
+
+```
+Crea scripts/verify_env.py que verifica que el entorno está correctamente configurado.
+
+Checks:
+1. Variables obligatorias del .env no vacías ni con valores placeholder
+2. Conexión a PostgreSQL via asyncpg ejecutando SELECT 1
+3. Existencia de las 7 tablas esperadas (projects, sprints, tasks, estimations,
+   knowledge_chunks, chat_sessions, chat_messages)
+4. Heartbeat de ChromaDB via GET http://{CHROMADB_HOST}:{CHROMADB_PORT}/api/v2/heartbeat
+5. Si LLM_MODE=local: verificar que Ollama responde en OLLAMA_BASE_URL/api/tags
+   y que 'nomic-embed-text' está disponible
+
+Imprime ✓/✗ por check con colores ANSI y sale con exit code 1 si alguno falla.
+Dependencias: asyncpg, requests, python-dotenv.
+
+Ficheros de contexto: backend/src/infrastructure/config/settings.py,
+scripts/db_init.sql, docker-compose.yml
+```
+
+**Notas**:
+- `asyncpg.connect()` requiere scheme `postgresql://`, no el `postgresql+asyncpg://` de SQLAlchemy — normalizar con `.replace("postgresql+asyncpg://", "postgresql://")` antes de conectar.
+- ChromaDB v0.5+ depreca `/api/v1/heartbeat` (devuelve 410). El endpoint correcto es `/api/v2/heartbeat`.
+- `changeme` no debe estar en la lista de placeholder markers porque es la contraseña real de desarrollo en Docker.
+- 4 iteraciones: script inicial → fix asyncpg scheme → fix ChromaDB endpoint → ajuste placeholder markers.
+
+---
+
+### 3.2 Implementación ClaudeAdapter, LLMRouter y OllamaLLMAdapter (PMCP-6)
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: Tres módulos implementados sobre stubs existentes. LLMRouter refactorizado con `retry_attempts` configurable para testabilidad. 14 tests unitarios con 98% cobertura.
+**Ficheros generados/afectados**: `backend/src/adapters/secondary/llm/claude_adapter.py`, `backend/src/adapters/secondary/llm/ollama_llm_adapter.py`, `backend/src/infrastructure/llm_router/llm_router.py`
+
+**Prompt**:
+
+```
+Implementa los siguientes módulos de la épica PMCP-6 (LLM Core):
+
+PMCP-7 — ClaudeAdapter en backend/src/adapters/secondary/llm/claude_adapter.py:
+- Clase ClaudeAdapter(LLMPort). DEFAULT_MODEL='claude-sonnet-4-6'.
+- complete(LLMRequest) -> LLMResponse: usa AsyncAnthropic.messages.create(),
+  mapea content[0].text, usage.input_tokens/output_tokens, provider='anthropic'
+- stream(LLMRequest) -> AsyncIterator[str]: usa messages.stream() context manager,
+  yield tokens de text_stream
+- health_check() -> bool: ping con max_tokens=1 a Haiku, captura excepciones
+- json_mode=True: añade instrucción al system prompt para forzar JSON
+
+PMCP-10 — OllamaLLMAdapter en backend/src/adapters/secondary/llm/ollama_llm_adapter.py:
+- Solo httpx puro (sin SDK de Anthropic/OpenAI)
+- complete(): POST /api/chat con stream=False, parsea message.content
+- stream(): POST /api/chat con stream=True, parsea NDJSON línea a línea
+- health_check(): GET /api/tags, retorna True si status 200
+- Modelo por defecto: llama3.2
+
+PMCP-8 — LLMRouter refactorizado:
+- Constructor recibe retry_attempts: int = 3 para hacer testable sin sleeps
+- Separar _try_providers() del loop de retry de tenacity (AsyncRetrying)
+- Routing: REASONING/GENERATION_LONG → Claude → Gemini → Ollama
+           CLASSIFICATION/EXTRACTION/SIMPLE_QA → Groq → Ollama → Claude
+- LOCAL mode: siempre Ollama
+```
+
+**Notas**:
+- El `@retry` decorator de tenacity sobre `complete()` genera sleeps reales en tests cuando todos los proveedores fallan. Pasar a `AsyncRetrying` en el cuerpo del método con `retry_attempts` configurable resuelve esto.
+- `ClaudeAdapter._build_kwargs()` centraliza la construcción de kwargs para `complete()` y `stream()`, evitando duplicación del manejo de `system` y `json_mode`.
+- `OllamaLLMAdapter._chat_payload()` inserta el `system` como primer mensaje con rol `system` (formato messages de Ollama).
+
+---
+
 ### 3.1 Arranque del Proyecto — Estructura Hexagonal Completa (Backend + Frontend)
 
 **Fecha**: 2026-04-28  
@@ -264,13 +343,78 @@ Añade al Makefile:
 
 ## 5. Prompts de Testing
 
-*[Añadir prompts de testing aquí]*
+### 5.1 Tests unitarios del LLMRouter con AsyncMock y cobertura ≥90%
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: 14 tests en `tests/unit/infrastructure/test_llm_router.py`, 98% cobertura de `llm_router.py`, sin llamadas reales a APIs. Cubre LOCAL/HYBRID mode, fallback entre proveedores, streaming con fallo y recuperación, health check.
+**Ficheros generados/afectados**: `backend/tests/unit/infrastructure/test_llm_router.py`
+
+**Prompt**:
+
+```
+Implementa tests en backend/tests/unit/infrastructure/test_llm_router.py usando AsyncMock
+para todos los puertos LLM. Tests requeridos:
+
+- test_local_mode_uses_ollama_only: verifica que en LOCAL solo se llama ollama.complete
+- test_fallback_to_ollama_when_claude_fails: claude lanza Exception, ollama retorna respuesta válida
+- test_reasoning_uses_claude_first_when_available: HYBRID+REASONING → claude primero
+- test_classification_uses_groq_first: HYBRID+CLASSIFICATION → groq primero
+- test_all_providers_fail_raises: todos fallan → RuntimeError
+- tests de streaming: stream() yields tokens, fallback cuando primer provider falla, raise cuando todos fallan
+- tests de health_check: True si al menos uno OK, False si todos fallan
+
+Restricciones:
+- Solo AsyncMock, sin llamadas reales a APIs ni red
+- pytest-asyncio en modo AUTO (asyncio_mode = "auto" en pyproject.toml)
+- Cobertura de llm_router.py ≥ 90%
+- LLMRouter debe instanciarse con retry_attempts=1 en tests para evitar backoff de tenacity
+```
+
+**Notas**:
+- La primera iteración alcanzó 81% de cobertura porque `stream()` no estaba cubierto. Se añadió la clase `TestStreaming` con 3 tests para llegar a 98%.
+- Los generators async para mocking de `stream()` requieren definir funciones `async def` que hagan `yield`, no `AsyncMock` directamente — `AsyncMock` no soporta `async for` sobre su return value por defecto.
+- `retry_attempts=1` en el constructor del `LLMRouter` es el patrón para desactivar los sleeps de tenacity en tests sin mockear el módulo entero.
 
 ---
 
 ## 6. Prompts de Documentación
 
-*[Añadir prompts de documentación aquí]*
+### 6.1 INSTALL.md y RUNBOOK.md — Guías técnicas del proyecto
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: Dos documentos técnicos creados en `docs/` y publicados en Confluence bajo "08. Documentación Técnica del Proyecto". El RUNBOOK incluye 5 problemas conocidos documentados con síntoma, causa y solución.
+**Ficheros generados/afectados**: `docs/INSTALL.md`, `docs/RUNBOOK.md`, `scripts/publish_tech_docs.py`
+
+**Prompt**:
+
+```
+Crea dos documentos basándote en el estado real del proyecto:
+
+1. docs/INSTALL.md con:
+   - Prerrequisitos: Python 3.12+, Node 20+, Docker, Git, Ollama (opcional) con versiones exactas
+   - Clonar repo y configurar .env desde .env.example
+   - Instalación backend: pip install -e ".[dev]"
+   - Instalación frontend: npm install
+   - Arranque infraestructura: make up && make db-init
+   - Verificación: make verify
+   - Instalación Ollama modo local (opcional)
+
+2. docs/RUNBOOK.md con:
+   - Comandos diarios del Makefile
+   - Flujo de trabajo con Jira y Git flow
+   - Cómo ejecutar tests: pytest -m "not integration" y -m integration
+   - Cómo actualizar Confluence y Jira: scripts disponibles
+   - Problemas conocidos: asyncpg scheme, ChromaDB v2 heartbeat,
+     Jira custom fields, Docker WSL2 newgrp
+
+3. Publica ambos en Confluence bajo "08. Documentación Técnica del Proyecto"
+```
+
+**Notas**:
+- La página padre "08. Documentación Técnica del Proyecto" (id 164045) ya existía — `publish_markdown()` del `ConfluenceClient` la encuentra por título y crea las subpáginas bajo ella.
+- Reutilizable: `scripts/publish_tech_docs.py` sirve de plantilla para publicar cualquier par de Markdowns en Confluence con un solo script.
 
 ---
 
@@ -374,7 +518,24 @@ Usa `requests` y `python-dotenv`. Añade las dependencias a `requirements-script
 
 ## 8. Prompts de LLM y RAG
 
-*[Añadir prompts relacionados con LLM Router, RAG pipeline, embeddings aquí]*
+### 8.1 Patrón: json_mode en ClaudeAdapter
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: Patrón implementado en `ClaudeAdapter._build_kwargs()` — cuando `LLMRequest.json_mode=True`, se añade instrucción al `system` prompt para forzar output JSON parseable.
+
+**Patrón**:
+
+```python
+if request.json_mode:
+    json_instruction = "Respond only with valid JSON. Do not include any text outside the JSON."
+    system = f"{system}\n{json_instruction}".strip()
+```
+
+**Notas**:
+- Claude no tiene un parámetro nativo `json_mode` como OpenAI — la instrucción en el system prompt es la forma recomendada.
+- El criterio de aceptación es que `json.loads(response.content)` no lance excepción.
+- Para validación adicional, usar un `try/except json.JSONDecodeError` en el caso de uso y activar el fallback definido en `DEFINITION_OF_DONE.md`.
 
 ---
 
