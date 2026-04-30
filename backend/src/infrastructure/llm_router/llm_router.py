@@ -3,47 +3,45 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from ...domain.ports.llm_port import LLMPort, LLMRequest, LLMResponse, LLMTaskType
 from ..config.settings import LLMMode, settings
-from .task_classifier import TaskClassifier
 
 logger = logging.getLogger(__name__)
 
-
 CLOUD_REASONING_TYPES = {LLMTaskType.REASONING, LLMTaskType.GENERATION_LONG}
-FAST_TYPES = {LLMTaskType.CLASSIFICATION, LLMTaskType.EXTRACTION, LLMTaskType.SIMPLE_QA}
 
 
 class LLMRouter(LLMPort):
     """Routes LLM requests to the optimal provider based on task type and availability.
 
     Priority order (HYBRID/CLOUD mode):
-      REASONING / GENERATION_LONG → Claude → Groq → Ollama
+      REASONING / GENERATION_LONG → Claude → Gemini → Ollama
       CLASSIFICATION / EXTRACTION / SIMPLE_QA → Groq → Ollama → Claude
     In LOCAL mode, all requests go to Ollama.
 
-    Every provider call is wrapped in a tenacity retry+circuit-breaker pattern.
+    Tenacity retries the provider chain up to `retry_attempts` times before raising.
+    Pass retry_attempts=1 in tests to disable waits.
     """
 
     def __init__(
         self,
-        claude: LLMPort | None,
-        groq: LLMPort | None,
-        gemini: LLMPort | None,
         ollama: LLMPort,
+        claude: LLMPort | None = None,
+        groq: LLMPort | None = None,
+        gemini: LLMPort | None = None,
         mode: LLMMode = settings.llm_mode,
+        retry_attempts: int = 3,
     ) -> None:
+        self._ollama = ollama
         self._claude = claude
         self._groq = groq
         self._gemini = gemini
-        self._ollama = ollama
         self._mode = mode
-        self._classifier = TaskClassifier()
+        self._retry_attempts = retry_attempts
 
-    def _resolve_provider(self, task_type: LLMTaskType) -> list[LLMPort]:
-        """Returns ordered list of providers to try for this task type."""
+    def _resolve_providers(self, task_type: LLMTaskType) -> list[LLMPort]:
         if self._mode == LLMMode.LOCAL:
             return [self._ollama]
 
@@ -54,14 +52,8 @@ class LLMRouter(LLMPort):
 
         return [p for p in candidates if p is not None]
 
-    @retry(
-        retry=retry_if_exception_type(Exception),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        reraise=True,
-    )
-    async def complete(self, request: LLMRequest) -> LLMResponse:
-        providers = self._resolve_provider(request.task_type)
+    async def _try_providers(self, request: LLMRequest) -> LLMResponse:
+        providers = self._resolve_providers(request.task_type)
         last_error: Exception | None = None
         for provider in providers:
             try:
@@ -71,9 +63,18 @@ class LLMRouter(LLMPort):
                 last_error = exc
         raise last_error or RuntimeError("No LLM provider available")
 
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(self._retry_attempts),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            reraise=True,
+        ):
+            with attempt:
+                return await self._try_providers(request)
+        raise RuntimeError("unreachable")  # satisfies mypy
+
     async def stream(self, request: LLMRequest) -> AsyncIterator[str]:
-        # Streaming always uses the first available cloud provider or Ollama
-        providers = self._resolve_provider(request.task_type)
+        providers = self._resolve_providers(request.task_type)
         for provider in providers:
             try:
                 async for token in provider.stream(request):
@@ -84,7 +85,6 @@ class LLMRouter(LLMPort):
         raise RuntimeError("No LLM provider available for streaming")
 
     async def health_check(self) -> bool:
-        # Returns True if at least one provider is healthy
         for provider in [self._ollama, self._claude, self._groq, self._gemini]:
             if provider and await provider.health_check():
                 return True
