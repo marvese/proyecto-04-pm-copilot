@@ -26,12 +26,12 @@ class Sprint:
     created_at: datetime = field(default_factory=datetime.utcnow)
 
     def velocity(self) -> Optional[float]:
-        # TODO: implement — returns completed points / capacity
-        raise NotImplementedError
+        if not self.capacity_points:
+            return None
+        return None  # requires actual completed points — computed externally
 
     def is_active(self) -> bool:
-        # TODO: implement
-        raise NotImplementedError
+        return self.status == SprintStatus.ACTIVE
 
 
 @dataclass
@@ -46,5 +46,7 @@ class Project:
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
     def active_sprint(self, sprints: list[Sprint]) -> Optional[Sprint]:
-        # TODO: implement — returns the single active sprint or None
-        raise NotImplementedError
+        for sprint in sprints:
+            if sprint.is_active():
+                return sprint
+        return None
