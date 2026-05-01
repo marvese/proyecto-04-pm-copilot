@@ -4,8 +4,8 @@ from functools import lru_cache
 
 from .config.settings import Settings, LLMMode, settings
 from .llm_router.llm_router import LLMRouter
-from .rag.chunker import DocumentChunker
 from .rag.embedding_pipeline import EmbeddingPipeline
+from ..domain.services.chunker import DocumentChunker
 from ..adapters.secondary.embedding.ollama_embedding_adapter import OllamaEmbeddingAdapter
 from ..adapters.secondary.llm.claude_adapter import ClaudeAdapter
 from ..adapters.secondary.llm.ollama_llm_adapter import OllamaLLMAdapter
@@ -108,6 +108,23 @@ class Container:
             llm=self.llm_router,
             embedding=self.embedding,
             vector_store=self.vector_store,
+        )
+
+    @property
+    def index_documents_use_case(self) -> IndexDocumentsUseCase:
+        return IndexDocumentsUseCase(
+            rag_service=self.rag_service,
+            confluence_port=self.confluence,
+            jira_port=self.jira,
+            github_port=self.github,
+            chunker=DocumentChunker(),
+        )
+
+    @property
+    def query_knowledge_use_case(self) -> QueryKnowledgeUseCase:
+        return QueryKnowledgeUseCase(
+            llm_port=self.llm_router,
+            rag_service=self.rag_service,
         )
 
 
