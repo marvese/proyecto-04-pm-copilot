@@ -82,6 +82,8 @@ proyecto-04-pm-copilot/
 │   ├── METODOLOGIA.md
 │   ├── DEFINITION_OF_DONE.md
 │   ├── PROMPTS.md
+│   ├── INSTALL.md                            # Guía de instalación y arranque del entorno
+│   ├── RUNBOOK.md                            # Comandos operacionales, Git flow, troubleshooting
 │   ├── ADR-001-stack.md
 │   ├── ADR-002-hexagonal.md
 │   ├── ADR-003-circuit-breaker.md
@@ -91,6 +93,7 @@ proyecto-04-pm-copilot/
 ├── scripts/
 │   ├── setup_confluence.py                   # Setup inicial del espacio Confluence
 │   ├── setup_jira.py                         # Crea proyecto PMCP, 9 épicas y 37 historias en Jira
+│   ├── verify_env.py                         # Verifica variables, PostgreSQL, ChromaDB y Ollama
 │   ├── db_init.sql                           # DDL completo (7 tablas, índices, triggers)
 │   ├── confluence_client.py                  # Cliente reutilizable Confluence REST API
 │   ├── publish_prompts.py                    # Publica PROMPTS.md en Confluence
