@@ -1,7 +1,7 @@
 # Biblioteca de Prompts — PM Copilot
 
-**Versión**: 0.10  
-**Fecha**: 2026-04-30  
+**Versión**: 0.11  
+**Fecha**: 2026-05-01  
 
 ---
 
@@ -754,6 +754,40 @@ test_index_documents_use_case.py:
 - `MagicMock(spec=DocumentChunker)` para el chunker en tests de `IndexDocumentsUseCase` — retorna listas configurables sin ejecutar el chunking real.
 - El patrón `make_use_case()` que retorna tupla `(uc, rag, confluence, jira, github)` permite aserciones precisas sobre qué puerto fue llamado y con qué argumentos.
 - Los errores por página (Confluence) y por fichero (GitHub) se loguean como WARNING y se continúa — los tests verifican que el source sigue siendo procesado si al menos un documento tuvo éxito.
+
+---
+
+### 5.4 Code review cross-épicas — tests de entidades, LLM adapters y task classifier
+
+**Fecha**: 2026-05-01
+**Modelo**: claude-sonnet-4-6
+**Resultado**: 41 tests nuevos cubriendo módulos no testeados de PMCP-1, PMCP-6, PMCP-11 y PMCP-16. Suite total: 119 passed.
+**Ficheros generados/afectados**:
+- `backend/tests/unit/domain/entities/test_task.py` (reescrito)
+- `backend/tests/unit/domain/entities/test_project_entity.py` (nuevo)
+- `backend/tests/unit/domain/entities/test_knowledge_entity.py` (nuevo)
+- `backend/tests/unit/infrastructure/test_task_classifier.py` (nuevo)
+- `backend/tests/unit/adapters/secondary/llm/test_ollama_llm_adapter.py` (nuevo)
+- `backend/tests/unit/adapters/secondary/llm/test_claude_adapter.py` (nuevo)
+
+**Prompt**:
+
+```
+Pasa los skills de code-reviewer, docs-updater, prompt-librarian, test-writer y
+confluence-publisher a todas las épicas desarrolladas hasta el momento:
+PMCP-1, PMCP-6, PMCP-11, PMCP-16 y PMCP-21.
+
+Identifica y corrige todos los problemas BLOQUEANTES y DEBE-CORREGIRSE encontrados.
+Escribe los tests faltantes para todos los módulos sin cobertura.
+```
+
+**Notas**:
+- Problemas BLOQUEANTE corregidos: (1) `Task.is_valid_story_points()` y `mark_done()` lanzaban `NotImplementedError`; (2) `chat_ws_handler.py` llamaba directamente a `container.embedding` y `container.vector_store` bypasando la capa de dominio — corregido a `container.rag_service.search()`.
+- Problemas DEBE-CORREGIRSE corregidos: (3) `except Exception: pass` silencioso en `chat_ws_handler.py`; (4) CORS `allow_origins=["*"]` hardcodeado → configurable vía `settings.allowed_origins`.
+- Para `ClaudeAdapter`: mockear `anthropic.AsyncAnthropic` a nivel de clase (no de instancia) con `patch("anthropic.AsyncAnthropic")` — el patch en el nivel correcto es el módulo donde se importa, no donde se define.
+- Para `OllamaLLMAdapter.stream()`: el mock del async context manager de `client.stream()` requiere un objeto separado para el contexto interno (`__aenter__/__aexit__`), distinto del cliente externo.
+- `test_task_classifier.py`: verificar case-insensitive (`.lower()` ya está en la implementación).
+- Reutilizable en: cualquier sesión de code review cross-épicas — el patrón de audit → correcciones → tests → changelog es el flujo estándar.
 
 ---
 

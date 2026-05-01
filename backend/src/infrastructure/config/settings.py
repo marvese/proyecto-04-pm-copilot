@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     app_name: str = "PM Copilot"
     debug: bool = False
     secret_key: str = "change-me-in-production"
+    allowed_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/pmcopilot"

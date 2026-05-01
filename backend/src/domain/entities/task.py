@@ -59,9 +59,9 @@ class Task:
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
     def is_valid_story_points(self, points: int) -> bool:
-        # TODO: implement — validates against Fibonacci scale
-        raise NotImplementedError
+        return points in FIBONACCI_POINTS
 
     def mark_done(self, actual_points: int) -> None:
-        # TODO: implement — sets status=DONE and records actual_points
-        raise NotImplementedError
+        self.status = TaskStatus.DONE
+        self.actual_points = actual_points
+        self.updated_at = datetime.utcnow()
