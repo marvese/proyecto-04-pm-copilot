@@ -27,9 +27,33 @@ class QueryKnowledgeUseCase:
         self._rag = rag_service
 
     async def execute(self, command: KnowledgeQueryCommand) -> KnowledgeQueryResult:
-        # TODO: implement
-        # 1. rag_service.search(query, project_id, top_k)
-        # 2. Build prompt with retrieved chunks as context
-        # 3. LLM completes with SIMPLE_QA task type
-        # 4. Return answer + source chunks (with citations)
-        raise NotImplementedError
+        similar = await self._rag.search(
+            query=command.query,
+            project_id=str(command.project_id),
+            top_k=command.top_k,
+        )
+        if not similar:
+            return KnowledgeQueryResult(
+                answer="No se encontró información relevante en la base de conocimiento.",
+                sources=[],
+            )
+
+        context_text = "\n\n".join(
+            f"Fuente: {r.metadata.get('url', r.metadata.get('document_id', ''))}\n{r.content}"
+            for r in similar
+        )
+        prompt = (
+            f"Contexto del proyecto:\n{context_text}\n\n"
+            f"Pregunta: {command.query}\n\n"
+            "Responde basándote solo en el contexto proporcionado. "
+            "Si la información no está en el contexto, indícalo."
+        )
+        response = await self._llm.complete(
+            LLMRequest(
+                prompt=prompt,
+                task_type=LLMTaskType.SIMPLE_QA,
+                max_tokens=1024,
+                temperature=0.3,
+            )
+        )
+        return KnowledgeQueryResult(answer=response.content, sources=similar)

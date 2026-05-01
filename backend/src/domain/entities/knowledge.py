@@ -27,5 +27,9 @@ class KnowledgeChunk:
     last_updated: datetime = field(default_factory=datetime.utcnow)
 
     def needs_reindex(self, max_age_days: int = 1) -> bool:
-        # TODO: implement — checks if chunk is stale
-        raise NotImplementedError
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        last = self.last_updated
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return (now - last).days >= max_age_days

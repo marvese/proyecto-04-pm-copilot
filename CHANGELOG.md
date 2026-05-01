@@ -43,6 +43,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 - **PMCP-19**: `useCopilotChat` hook — `startSession(projectId)` crea sesión via `chatService`; `sendMessage()` añade mensaje optimista al state, abre WebSocket, acumula tokens en el mensaje assistant placeholder, cierra WS al recibir `done`; gestión de error en estado UI
 - **PMCP-20**: Componentes React de chat — `ChatInput`: textarea auto-resize, Enter envía / Shift+Enter nueva línea, disabled durante streaming; `MessageBubble`: burbujas diferenciadas user/assistant, cursor parpadeante cuando content vacío; `ChatWindow`: scroll automático al último mensaje, `LoadingSpinner` durante streaming; `ChatPage`: pantalla de entrada de Project ID → sesión → interfaz de chat completa; `useProjectContext` stub sin throws; suite completa: **40 passed, 4 skipped**
 
+- **PMCP-22**: `OllamaEmbeddingAdapter` — `embed()` via `httpx.AsyncClient` POST a `/api/embeddings` (nomic-embed-text, 768 dims), validación de dimensión, retry automático (tenacity, 3 intentos, backoff exponencial); `embed_batch()` via `asyncio.gather` paralelo; `dimension` property.
+- **PMCP-23**: `ChromaDBAdapter` — cliente asíncrono lazy (await `chromadb.AsyncHttpClient`), `upsert()` y `search()` con retry tenacity, score = 1 − distancia, `search()` retorna `[]` si la colección no existe; `delete()` y `collection_exists()`.
+- **PMCP-24**: `IndexDocumentsUseCase` — recorre fuentes configuradas (Confluence, Jira, GitHub), chunkea contenido vía `DocumentChunker` inyectado, llama `rag_service.index_chunks()`; `BackgroundTasks` en FastAPI `/knowledge/index` retorna 202 inmediato.
+- **PMCP-25**: `QueryKnowledgeUseCase` — `rag_service.search()` → construye contexto → `LLMRequest(task_type=SIMPLE_QA)` → retorna `KnowledgeQueryResult` con `answer` y `sources`; respuesta fallback si no hay resultados.
+- **RAGService** completamente implementado: `index_chunk()` embed + upsert, `index_chunks()` paralelo con `asyncio.gather`, `search()` embed query → `vector_store.search()`.
+- **`DocumentChunker` movido a `domain/services/chunker.py`** (era `infrastructure/rag/chunker.py`) — fix de violación hexagonal: el módulo `application/` no puede importar de `infrastructure/`. La capa `infrastructure` re-exporta para compatibilidad. `IndexDocumentsUseCase` recibe el chunker por inyección de constructor.
+- **`knowledge_router.py`**: endpoints `/api/v1/knowledge/index` (POST 202), `/api/v1/knowledge/status` (GET, placeholder PMCP-27), `/api/v1/knowledge/query` (POST).
+- **Tests unitarios RAG**: 17 tests nuevos — `test_rag_service.py` (7), `test_document_chunker.py` (11), `test_query_knowledge_use_case.py` (5), `test_ollama_embedding_adapter.py` (8), `test_index_documents_use_case.py` (11). Suite total: **78 passed, 3 skipped**.
+
 ### Fixed
 - **PMCP-5**: `asyncpg.connect()` requiere scheme `postgresql://`; `DATABASE_URL` de SQLAlchemy usa `postgresql+asyncpg://` — se normaliza antes de conectar
 - **PMCP-5**: ChromaDB v2 depreca `/api/v1/heartbeat`; endpoint correcto es `/api/v2/heartbeat`
+- **PMCP-21**: violación hexagonal en `IndexDocumentsUseCase` — importación directa de `DocumentChunker` desde `infrastructure/`. Corregido moviendo `DocumentChunker` a `domain/services/chunker.py` e inyectando por constructor.
