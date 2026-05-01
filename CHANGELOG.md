@@ -52,7 +52,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 - **`knowledge_router.py`**: endpoints `/api/v1/knowledge/index` (POST 202), `/api/v1/knowledge/status` (GET, placeholder PMCP-27), `/api/v1/knowledge/query` (POST).
 - **Tests unitarios RAG**: 17 tests nuevos — `test_rag_service.py` (7), `test_document_chunker.py` (11), `test_query_knowledge_use_case.py` (5), `test_ollama_embedding_adapter.py` (8), `test_index_documents_use_case.py` (11). Suite total: **78 passed, 3 skipped**.
 
+- **Code review cross-épicas**: 41 tests nuevos (119 passed total); 6 ficheros de test nuevos/actualizados: `test_task.py`, `test_project_entity.py`, `test_knowledge_entity.py`, `test_task_classifier.py`, `test_ollama_llm_adapter.py`, `test_claude_adapter.py`
+
 ### Fixed
+- **PMCP-1**: `settings.py` — CORS `allow_origins` configurable vía `allowed_origins: list[str]` (antes hardcodeado a `"*"`)
+- **PMCP-11**: `task.py` — `is_valid_story_points()` y `mark_done()` implementados (antes lanzaban `NotImplementedError`)
+- **PMCP-16**: `chat_ws_handler.py` — usa `container.rag_service.search()` en lugar de llamar directamente a `container.embedding` y `container.vector_store` (fix violación hexagonal); `except Exception: pass` silencioso reemplazado por `logger.debug()`
 - **PMCP-5**: `asyncpg.connect()` requiere scheme `postgresql://`; `DATABASE_URL` de SQLAlchemy usa `postgresql+asyncpg://` — se normaliza antes de conectar
 - **PMCP-5**: ChromaDB v2 depreca `/api/v1/heartbeat`; endpoint correcto es `/api/v2/heartbeat`
 - **PMCP-21**: violación hexagonal en `IndexDocumentsUseCase` — importación directa de `DocumentChunker` desde `infrastructure/`. Corregido moviendo `DocumentChunker` a `domain/services/chunker.py` e inyectando por constructor.
