@@ -1,7 +1,7 @@
 # Biblioteca de Prompts — PM Copilot
 
-**Versión**: 0.1  
-**Fecha**: 2026-04-24  
+**Versión**: 0.10  
+**Fecha**: 2026-04-30  
 
 ---
 
@@ -443,6 +443,113 @@ PMCP-18 — Chat API REST + WebSocket streaming:
 
 ---
 
+### 3.5 OllamaEmbeddingAdapter + ChromaDBAdapter (PMCP-22/23)
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: Dos adaptadores secundarios implementados sobre stubs — `OllamaEmbeddingAdapter` con httpx puro y `ChromaDBAdapter` con AsyncHttpClient lazy. Circuit breakers con tenacity en ambos.
+**Ficheros generados/afectados**:
+- `backend/src/adapters/secondary/embedding/ollama_embedding_adapter.py`
+- `backend/src/adapters/secondary/vector_store/chromadb_adapter.py`
+
+**Prompt**:
+
+```
+Implementa PMCP-22 y PMCP-23 de la épica RAG.
+
+PMCP-22 — OllamaEmbeddingAdapter en backend/src/adapters/secondary/embedding/ollama_embedding_adapter.py:
+- Implementa EmbeddingPort
+- embed(text) -> list[float]: POST httpx a {base_url}/api/embeddings con
+  {"model": "nomic-embed-text", "prompt": text}. Valida que len(result) == 768.
+  Si la dimensión es incorrecta lanza ValueError.
+- embed_batch(texts) -> list[list[float]]: asyncio.gather paralelo sobre embed()
+- dimension property: retorna 768
+- Circuit breaker: @retry tenacity sobre embed(), 3 intentos, backoff exponencial,
+  retry solo en ConnectError/TimeoutException/RemoteProtocolError
+
+PMCP-23 — ChromaDBAdapter en backend/src/adapters/secondary/vector_store/chromadb_adapter.py:
+- Implementa VectorStorePort
+- _get_client(): lazy init, await chromadb.AsyncHttpClient(host, port)
+  (AsyncHttpClient es una corutina en chromadb >= 0.5, necesita await)
+- upsert(id, embedding, content, metadata, collection): get_or_create_collection + col.upsert
+- search(query_embedding, collection, top_k, filter): get_collection (retorna [] si no existe),
+  col.query con include=["documents", "metadatas", "distances"],
+  score = round(1.0 - distances[i], 4)
+- delete(id, collection): silencioso si no existe
+- collection_exists(collection): bool
+- Circuit breaker: @retry tenacity en upsert y search, 3 intentos, backoff exponencial
+```
+
+**Notas**:
+- `await chromadb.AsyncHttpClient(host, port)` — `AsyncHttpClient` en chromadb ≥0.5 es una corutina, no un constructor. Olvidar el `await` da `AttributeError` en la primera llamada.
+- `score = 1 - distance` convierte la distancia coseno de ChromaDB (0=idéntico) en similitud (1=idéntico).
+- El `try/except` en `search()` cuando la colección no existe evita que el chat falle en proyectos recién creados sin chunks indexados.
+- Los tipos retryables de httpx son `ConnectError`, `TimeoutException`, `RemoteProtocolError` — no incluir `HTTPStatusError` (un 4xx no se recupera reintentando).
+- Reutilizable en: cualquier adaptador de embedding local — cambiar el modelo y la dimensión esperada.
+
+---
+
+### 3.6 RAGService + DocumentChunker + IndexDocumentsUseCase + QueryKnowledgeUseCase (PMCP-24/25)
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: Pipeline RAG completo: `DocumentChunker` en capa de dominio, `RAGService`, `IndexDocumentsUseCase` con `BackgroundTasks`, `QueryKnowledgeUseCase` con fallback, y router `/knowledge`.
+**Ficheros generados/afectados**:
+- `backend/src/domain/services/chunker.py` (movido desde infrastructure — fix hexagonal)
+- `backend/src/infrastructure/rag/chunker.py` (re-export)
+- `backend/src/domain/services/rag_service.py`
+- `backend/src/application/use_cases/index_documents_use_case.py`
+- `backend/src/application/use_cases/query_knowledge_use_case.py`
+- `backend/src/adapters/primary/api/knowledge_router.py`
+- `backend/src/infrastructure/container.py`
+
+**Prompt**:
+
+```
+Implementa la épica PMCP-21 (RAG y base de conocimiento).
+
+DocumentChunker en backend/src/domain/services/chunker.py (NO en infrastructure — hexagonal):
+- CHUNK_SIZE=512 palabras, CHUNK_OVERLAP=50 palabras
+- chunk_markdown(content, source, doc_id, project_id, url, last_updated):
+  split por headings ## / ###, secciones grandes re-split con _split_with_overlap;
+  fallback a chunk_plain_text si no hay headings
+- chunk_plain_text(content, source, doc_id, project_id, url, last_updated):
+  split fijo con overlap; retorna [] si content vacío
+- _make_chunk(): crea KnowledgeChunk con uuid4, project_id, source, section, url
+
+RAGService en backend/src/domain/services/rag_service.py:
+- KNOWLEDGE_COLLECTION = "knowledge"
+- index_chunk(chunk): embed(content) → vector_store.upsert(metadata con project_id, source)
+  Almacena embedding en chunk.embedding
+- index_chunks(chunks): asyncio.gather sobre index_chunk()
+- search(query, project_id, top_k=5): embed(query) → vector_store.search(filter={"project_id":...})
+
+PMCP-24 — IndexDocumentsUseCase:
+- Constructor: rag_service, confluence_port, jira_port, github_port, chunker (inyectado)
+- execute(command: IndexDocumentsCommand) -> IndexDocumentsResult
+- Por cada source: _fetch_and_chunk() → index_chunks(); error en source → failed++
+- _index_confluence: list_pages(space_key) → por página get_page_content → chunk_plain_text
+- _index_jira: list_issues(project_key) → "{summary}\n\n{description}" → chunk_plain_text
+- _index_github: get_file_content para README.md, docs/ARCHITECTURE.md, docs/PRD.md → chunk_markdown
+- FastAPI: POST /api/v1/knowledge/index retorna 202 con BackgroundTasks
+
+PMCP-25 — QueryKnowledgeUseCase:
+- execute(cmd: KnowledgeQueryCommand) -> KnowledgeQueryResult
+- rag_service.search(query, project_id, top_k) → si [] retornar fallback "No se encontró..."
+- Construir prompt: "Context:\n{chunks}\n\nQuestion: {query}"
+- LLMRequest(task_type=SIMPLE_QA), NO llamar al LLM si no hay resultados
+- Retornar KnowledgeQueryResult(answer, sources=search_results)
+```
+
+**Notas**:
+- `DocumentChunker` solo depende de `domain.entities.knowledge` — no tiene dependencias de infraestructura. Por eso vive en `domain/services/`, no en `infrastructure/`. Colocarlo en infrastructure sería una violación hexagonal: `application/` no puede importar de `infrastructure/`.
+- `asyncio.gather` en `index_chunks()` paraleliza los embeddings — con 100 chunks, el tiempo es O(1 embedding) en lugar de O(100).
+- El `chunker` se inyecta en el constructor de `IndexDocumentsUseCase` (no se instancia internamente) para hacer el use case testeable sin imports de infraestructura.
+- Reutilizable en: cualquier pipeline RAG — el patrón chunk → embed → upsert es estándar, solo cambiar las fuentes en `_fetch_and_chunk`.
+- No usar cuando: el volumen de documentos es >10k páginas — evaluar procesamiento en batch con rate limiting por fuente.
+
+---
+
 ## 4. Prompts de Desarrollo Frontend
 
 ### 4.1 useCopilotChat hook + componentes Chat (PMCP-19/20)
@@ -590,6 +697,63 @@ Clases de test:
 - Los helpers locales (`make_task`, `make_sprint`, `make_use_case`) son preferibles a fixtures en conftest para tests de use cases: hacen el test autocontenido y evitan dependencias ocultas con el scope de fixtures globales.
 - `AsyncMock(spec=TaskRepositoryPort)` + `return_value` directamente — no necesita configuración adicional porque el use case solo llama `list_by_project` y `get_active`.
 - Reutilizable en: cualquier use case que agregue datos de repositorios — el patrón `make_X` + `make_use_case` + clase de test por aspecto funciona en todos los contextos similares.
+
+---
+
+### 5.3 Tests RAG — RAGService, DocumentChunker, OllamaEmbeddingAdapter, IndexDocumentsUseCase, QueryKnowledgeUseCase (PMCP-21)
+
+**Fecha**: 2026-04-30
+**Modelo**: claude-sonnet-4-6
+**Resultado**: 5 ficheros de test, 37 tests nuevos, cobertura de todos los módulos de la épica RAG. Suite total: 78 passed, 3 skipped.
+**Ficheros generados/afectados**:
+- `backend/tests/unit/domain/services/test_rag_service.py`
+- `backend/tests/unit/infrastructure/test_document_chunker.py`
+- `backend/tests/unit/application/use_cases/test_query_knowledge_use_case.py`
+- `backend/tests/unit/adapters/secondary/test_ollama_embedding_adapter.py`
+- `backend/tests/unit/application/use_cases/test_index_documents_use_case.py`
+
+**Prompt**:
+
+```
+Escribe tests unitarios para todos los módulos de la épica PMCP-21 (RAG).
+
+test_rag_service.py:
+- TestIndexChunk: embeds y upserts, embedding almacenado en chunk, metadata con project_id y source
+- TestIndexChunks: todos los chunks indexados (assert await_count == N)
+- TestSearch: embed query → vector_store.search con filter, retorna resultados, vacío si no hay
+
+test_document_chunker.py:
+- TestChunkMarkdown: split en headings, heading en section, fallback sin headings,
+  sección grande re-split, project_id correcto, url propagada
+- TestChunkPlainText: chunk único corto, múltiples chunks largo, overlap verificado
+  (últimas CHUNK_OVERLAP palabras del chunk 1 == primeras del chunk 2), vacío retorna [],
+  section=None
+
+test_query_knowledge_use_case.py:
+- retorna answer con sources, fallback "No se encontró" cuando no hay resultados,
+  LLM NO llamado cuando no hay resultados,
+  contexto incluido en el prompt (verificar call_args),
+  search llamado con project_id y top_k
+
+test_ollama_embedding_adapter.py:
+- embedding correcto en éxito, POST al endpoint correcto con model y prompt,
+  ValueError con dimensión incorrecta, trailing slash stripped,
+  embed_batch retorna todos, batch vacío retorna []
+
+test_index_documents_use_case.py:
+- Confluence: indexa páginas, skip sin space_key, skip con port=None,
+  error en get_page_content salta esa página pero continúa
+- Jira: indexa issues, skip sin project_key
+- GitHub: indexa ficheros, fichero faltante silencioso
+- Múltiples fuentes: procesa todas, error en index_chunks incrementa failed_count
+```
+
+**Notas**:
+- `patch("httpx.AsyncClient")` con `__aenter__`/`__aexit__` AsyncMock es el patrón para mockear context managers async de httpx. Alternativa: usar `respx` si hay muchas llamadas.
+- Para verificar el overlap entre chunks: `chunks[0].content.split()[-CHUNK_OVERLAP:] == chunks[1].content.split()[:CHUNK_OVERLAP]`.
+- `MagicMock(spec=DocumentChunker)` para el chunker en tests de `IndexDocumentsUseCase` — retorna listas configurables sin ejecutar el chunking real.
+- El patrón `make_use_case()` que retorna tupla `(uc, rag, confluence, jira, github)` permite aserciones precisas sobre qué puerto fue llamado y con qué argumentos.
+- Los errores por página (Confluence) y por fichero (GitHub) se loguean como WARNING y se continúa — los tests verifican que el source sigue siendo procesado si al menos un documento tuvo éxito.
 
 ---
 
