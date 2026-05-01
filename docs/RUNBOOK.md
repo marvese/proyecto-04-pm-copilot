@@ -47,6 +47,12 @@ git branch -d feature/epic-6-llm-core
 git checkout master
 git merge --no-ff develop
 git push origin master
+
+# 6. IMPORTANTE: sincronizar develop con master después de cada merge a master
+#    (los merge commits --no-ff crean divergencia que GitHub reporta como "N commits behind")
+git checkout develop
+git merge origin/master --no-edit
+git push origin develop
 ```
 
 **Convención de commits**: `<tipo>(PMCP-X): <descripción en imperativo>`
