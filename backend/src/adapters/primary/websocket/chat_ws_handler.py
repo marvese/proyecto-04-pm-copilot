@@ -41,16 +41,14 @@ async def chat_stream(websocket: WebSocket, message_id: uuid.UUID) -> None:
         user_content: str = pending["content"]
         project_id: uuid.UUID = pending["project_id"]
 
-        # 2. Build RAG context
+        # 2. Build RAG context via domain service (not adapters directly)
         sources: list[dict] = []
         context_text = ""
         try:
-            query_embedding = await container.embedding.embed(user_content)
-            chunks = await container.vector_store.search(
-                query_embedding=query_embedding,
-                collection="tasks",
+            chunks = await container.rag_service.search(
+                query=user_content,
+                project_id=str(project_id),
                 top_k=3,
-                filter={"project_id": str(project_id)},
             )
             if chunks:
                 context_text = "\n\n".join(
@@ -101,5 +99,5 @@ async def chat_stream(websocket: WebSocket, message_id: uuid.UUID) -> None:
         logger.error("chat_stream error: %s", exc)
         try:
             await websocket.send_json({"type": "error", "detail": str(exc)})
-        except Exception:
-            pass
+        except Exception as send_exc:
+            logger.debug("Could not send error frame to client: %s", send_exc)
