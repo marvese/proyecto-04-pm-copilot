@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: up down db-init db-reset db-shell logs tools-up tools-down ps verify help
+.PHONY: up down db-init db-reset db-shell logs tools-up tools-down ps verify migrate migrate-down help
 
 # Lee .env si existe (para variables en targets que las necesiten)
 -include .env
@@ -48,6 +48,12 @@ db-shell: ## Abre psql interactivo
 
 verify: ## Verifica que todos los servicios están listos (PostgreSQL, ChromaDB, Ollama)
 	python3 scripts/verify_env.py
+
+migrate: ## Aplica todas las migraciones pendientes (alembic upgrade head)
+	cd backend && alembic upgrade head
+
+migrate-down: ## Revierte la última migración (alembic downgrade -1)
+	cd backend && alembic downgrade -1
 
 # ─────────────────────────────────────────
 # Herramientas opcionales (pgAdmin)
