@@ -550,6 +550,81 @@ PMCP-25 — QueryKnowledgeUseCase:
 
 ---
 
+### 3.7 Épica de Persistencia PostgreSQL — ORM, Alembic y Adapters (PMCP-27/28/29/30)
+
+**Fecha**: 2026-05-04
+**Modelo**: claude-sonnet-4-6
+**Resultado**: Épica completa de persistencia implementada: modelos ORM SQLAlchemy 2.0, tres adapters (Task, Project, Sprint), migración Alembic async, Container actualizado, 18 tests de integración contra PostgreSQL real. Suite: 137 passed.
+**Ficheros generados/afectados**:
+- `backend/src/domain/exceptions.py` (nuevo — `DomainError`)
+- `backend/src/adapters/secondary/persistence/models.py` (nuevo — `ProjectORM`, `SprintORM`, `TaskORM`)
+- `backend/src/adapters/secondary/persistence/postgresql_task_adapter.py` (implementado)
+- `backend/src/adapters/secondary/persistence/postgresql_project_adapter.py` (implementado)
+- `backend/src/infrastructure/container.py` (propiedades `db_session_factory`, `task_repo`, `project_repo`, `sprint_repo`)
+- `backend/src/infrastructure/config/settings.py` (env_file múltiple)
+- `backend/alembic.ini` (nuevo)
+- `backend/alembic/env.py` (actualizado con Base.metadata y settings)
+- `backend/alembic/versions/001_initial_schema.py` (nuevo)
+- `Makefile` (targets `migrate`, `migrate-down`)
+
+**Prompt**:
+
+```
+Proseguimos con la épica de persistencia (PMCP-27).
+
+Contexto previo: el proyecto tiene arquitectura hexagonal con PostgreSQL + ChromaDB.
+Los puertos TaskRepositoryPort, ProjectRepositoryPort, SprintRepositoryPort están definidos
+en domain/ports/. Los stubs de adaptadores existen en adapters/secondary/persistence/
+con NotImplementedError. El schema de BD está en scripts/db_init.sql (7 tablas, 26 índices).
+
+Implementa PMCP-28, 29, 30 y 31 en orden de dependencias:
+
+PMCP-28 — PostgreSQLTaskAdapter:
+- ORM models en models.py: Base (DeclarativeBase), ProjectORM, SprintORM, TaskORM
+  con SQLAlchemy 2.0 Mapped/mapped_column. tags: ARRAY(Text). Enums como String (VARCHAR).
+- Constructor: session_factory: async_sessionmaker[AsyncSession]
+- Métodos: get_by_id (session.get), list_by_project (select con filtros opcionales),
+  save (merge + flush = upsert), delete (get + delete si existe),
+  list_pending_jira_sync (WHERE jira_sync_status='pending')
+- Conversiones _to_orm() y _to_entity() completas
+
+PMCP-29 — PostgreSQLProjectAdapter + PostgreSQLSprintAdapter:
+- PostgreSQLProjectAdapter: get_by_id, list_all (ORDER BY created_at DESC), save, delete
+- PostgreSQLSprintAdapter: get_by_id, get_active (WHERE status='active'), list_by_project, save
+- save() de SprintAdapter captura sqlalchemy.exc.IntegrityError y relanza como DomainError
+  (violación del índice único parcial uq_sprints_one_active_per_project)
+- DomainError en domain/exceptions.py (clase base de excepciones de negocio)
+
+PMCP-30 — Alembic:
+- alembic.ini en backend/ con prepend_sys_path = .
+- env.py importa Base desde models, settings.database_url como URL
+- settings.py: env_file=[".env", "../.env"] para funcionar desde backend/ y desde raíz
+- Migración 001_initial_schema.py: un op.execute() por sentencia DDL (asyncpg no soporta
+  multi-statement en una sola llamada). Usar IF NOT EXISTS para idempotencia.
+- make migrate / make migrate-down en Makefile
+
+PMCP-31 — Tests de integración:
+- tests/integration/conftest.py: fixture session_factory (scope=function, fresh engine por test),
+  fixture clean_db autouse (TRUNCATE projects CASCADE antes de cada test),
+  fixture saved_project
+- test_postgresql_task_adapter.py: 7 tests (save+retrieve con tags ARRAY, list con filtro,
+  pending sync, delete, upsert, noop delete)
+- test_postgresql_project_adapter.py: 11 tests (project CRUD + cascade, sprint get_active,
+  segundo sprint activo → DomainError, list_by_project)
+```
+
+**Notas**:
+- asyncpg no soporta múltiples comandos en una sola `execute()` call — `cannot insert multiple commands into a prepared statement`. Cada sentencia DDL en la migración debe ser un `op.execute()` separado.
+- `session.merge()` en SQLAlchemy 2.0 async es awaitable: `await session.merge(orm)`. Hace INSERT si la PK no existe, UPDATE si existe — implementación correcta de upsert sin ON CONFLICT.
+- `async_sessionmaker` con `expire_on_commit=False` evita `MissingGreenlet` en tests cuando se accede a atributos del objeto después de `commit()`.
+- Para tests de integración async con pytest-asyncio: usar `scope="function"` para el engine (no "session") — los engines compartidos entre tests con diferentes event loops causan "cannot perform operation: another operation is in progress".
+- `settings.py` con `env_file=[".env", "../.env"]` es el patrón para proyectos donde Alembic se ejecuta desde `backend/` pero el `.env` está en la raíz del proyecto.
+- Reutilizable en: cualquier proyecto FastAPI + SQLAlchemy 2.0 con async — los patrones de models.py, session_factory en Container, y conftest.py de integración son directamente aplicables.
+- Variación sugerida para proyectos con muchos adaptadores: crear una clase base `BaseSQLAdapter` con `_session_factory` y los helpers `_to_orm`/`_to_entity` como métodos abstractos.
+- No usar cuando: el volumen de escrituras requiere bulk inserts — `merge()` hace SELECT + INSERT/UPDATE por fila, no es eficiente para operaciones masivas.
+
+---
+
 ## 4. Prompts de Desarrollo Frontend
 
 ### 4.1 useCopilotChat hook + componentes Chat (PMCP-19/20)
@@ -788,6 +863,59 @@ Escribe los tests faltantes para todos los módulos sin cobertura.
 - Para `OllamaLLMAdapter.stream()`: el mock del async context manager de `client.stream()` requiere un objeto separado para el contexto interno (`__aenter__/__aexit__`), distinto del cliente externo.
 - `test_task_classifier.py`: verificar case-insensitive (`.lower()` ya está en la implementación).
 - Reutilizable en: cualquier sesión de code review cross-épicas — el patrón de audit → correcciones → tests → changelog es el flujo estándar.
+
+---
+
+### 5.5 Tests de integración para PostgreSQL adapters — conftest async con aislamiento por TRUNCATE (PMCP-31)
+
+**Fecha**: 2026-05-04
+**Modelo**: claude-sonnet-4-6
+**Resultado**: 18 tests de integración en `tests/integration/adapters/` contra PostgreSQL real. Aislamiento por `TRUNCATE CASCADE` entre tests. Cubre ARRAY, filtros, cascade deletes, constraint único de sprint activo.
+**Ficheros generados/afectados**:
+- `backend/tests/integration/conftest.py`
+- `backend/tests/integration/adapters/test_postgresql_task_adapter.py`
+- `backend/tests/integration/adapters/test_postgresql_project_adapter.py`
+
+**Prompt** (patrón reutilizable):
+
+```
+Escribe tests de integración para PostgreSQLTaskAdapter y PostgreSQLProjectAdapter/SprintAdapter
+en tests/integration/adapters/. Requiere PostgreSQL running con schema aplicado (make db-init).
+
+tests/integration/conftest.py:
+- session_factory fixture scope=function (fresh engine per test — evita conflictos de event loop)
+- clean_db fixture autouse (TRUNCATE projects CASCADE antes de cada test)
+- saved_project fixture que crea y persiste un Project de test
+
+TestPostgreSQLTaskAdapter (@pytest.mark.integration):
+- test_save_and_retrieve_task: round-trip completo verificando tags=['backend','api']
+- test_get_by_id_returns_none_for_missing
+- test_list_pending_jira_sync: 2 PENDING + 1 SYNCED → retorna exactamente 2
+- test_list_by_project_with_status_filter: 2 DONE + 2 IN_PROGRESS → filtro correcto
+- test_delete_task: save + delete + get_by_id retorna None
+- test_delete_nonexistent_is_noop: no lanza excepción
+- test_save_updates_existing_task: save → modificar → save → verificar cambios persistidos
+
+TestPostgreSQLProjectAdapter (@pytest.mark.integration):
+- test_save_and_retrieve_project, test_get_by_id_returns_none_for_missing
+- test_list_all_ordered_by_created_at_desc: verificar que dates == sorted(dates, reverse=True)
+- test_delete_project, test_delete_cascades_to_tasks
+
+TestPostgreSQLSprintAdapter (@pytest.mark.integration):
+- test_save_and_retrieve_sprint
+- test_get_active_returns_none_when_no_active_sprint
+- test_get_active_returns_active_sprint
+- test_save_second_active_sprint_raises_domain_error (pytest.raises(DomainError))
+- test_list_by_project, test_get_by_id_returns_none_for_missing
+```
+
+**Notas**:
+- `scope="function"` para session_factory es obligatorio con pytest-asyncio — los engines con `scope="session"` comparten estado entre event loops de tests distintos causando "cannot perform operation: another operation is in progress".
+- `TRUNCATE projects CASCADE` limpia toda la jerarquía FK en una sola operación (projects→sprints→tasks→estimations→chat_sessions).
+- Los helpers `_make_task(project_id, **kwargs)` y `_make_sprint(project_id, **kwargs)` locales al módulo de test (no fixtures) hacen cada test autocontenido y más legible.
+- `@pytest.mark.integration` permite ejecutar solo tests de integración con `pytest -m integration` y excluirlos en CI con `pytest -m "not integration"`.
+- El test `test_save_second_active_sprint_raises_domain_error` verifica la constraint `uq_sprints_one_active_per_project` del DDL — complementa los tests unitarios del adapter.
+- Reutilizable en: tests de integración de cualquier adaptador de repositorio SQLAlchemy — el patrón conftest + clean_db + mark es el estándar del proyecto.
 
 ---
 

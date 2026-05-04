@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from .config.settings import Settings, settings
 from .llm_router.llm_router import LLMRouter
@@ -35,7 +35,7 @@ class Container:
         self._llm_router: LLMRouter | None = None
         self._embedding: OllamaEmbeddingAdapter | None = None
         self._vector_store: ChromaDBAdapter | None = None
-        self._engine = None
+        self._engine: AsyncEngine | None = None
         self._session_factory: async_sessionmaker[AsyncSession] | None = None
 
     @property
