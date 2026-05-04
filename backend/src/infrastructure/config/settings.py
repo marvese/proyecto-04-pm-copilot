@@ -13,7 +13,12 @@ class LLMMode(str, Enum):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # Look for .env in CWD (project root) or one level up (when running from backend/)
+    model_config = SettingsConfigDict(
+        env_file=[".env", "../.env"],
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # Application
     app_name: str = "PM Copilot"

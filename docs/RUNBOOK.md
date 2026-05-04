@@ -20,6 +20,9 @@ make db-shell  # psql interactivo
 make tools-up  # pgAdmin en http://localhost:5050
 make tools-down
 make help      # lista todos los targets con descripción
+
+make migrate      # alembic upgrade head — aplica todas las migraciones pendientes
+make migrate-down # alembic downgrade -1 — revierte la última migración
 ```
 
 ---

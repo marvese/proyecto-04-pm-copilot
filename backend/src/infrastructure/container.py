@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from functools import lru_cache
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from .config.settings import Settings, LLMMode, settings
+from .config.settings import Settings, settings
 from .llm_router.llm_router import LLMRouter
 from .rag.embedding_pipeline import EmbeddingPipeline
 from ..domain.services.chunker import DocumentChunker
@@ -15,6 +15,11 @@ from ..adapters.secondary.vector_store.chromadb_adapter import ChromaDBAdapter
 from ..adapters.secondary.integrations.confluence_adapter import ConfluenceAdapter
 from ..adapters.secondary.integrations.jira_adapter import JiraAdapter
 from ..adapters.secondary.integrations.github_adapter import GitHubAdapter
+from ..adapters.secondary.persistence.postgresql_task_adapter import PostgreSQLTaskAdapter
+from ..adapters.secondary.persistence.postgresql_project_adapter import (
+    PostgreSQLProjectAdapter,
+    PostgreSQLSprintAdapter,
+)
 from ..domain.services.rag_service import RAGService
 from ..application.use_cases.estimate_task_use_case import EstimateTaskUseCase
 from ..application.use_cases.create_task_use_case import CreateTaskUseCase
@@ -30,6 +35,8 @@ class Container:
         self._llm_router: LLMRouter | None = None
         self._embedding: OllamaEmbeddingAdapter | None = None
         self._vector_store: ChromaDBAdapter | None = None
+        self._engine: AsyncEngine | None = None
+        self._session_factory: async_sessionmaker[AsyncSession] | None = None
 
     @property
     def llm_router(self) -> LLMRouter:
@@ -101,6 +108,27 @@ class Container:
         if not self._cfg.github_token:
             return None
         return GitHubAdapter(token=self._cfg.github_token)
+
+    @property
+    def db_session_factory(self) -> async_sessionmaker[AsyncSession]:
+        if self._session_factory is None:
+            self._engine = create_async_engine(self._cfg.database_url, echo=self._cfg.debug)
+            self._session_factory = async_sessionmaker(
+                self._engine, class_=AsyncSession, expire_on_commit=False
+            )
+        return self._session_factory
+
+    @property
+    def task_repo(self) -> PostgreSQLTaskAdapter:
+        return PostgreSQLTaskAdapter(session_factory=self.db_session_factory)
+
+    @property
+    def project_repo(self) -> PostgreSQLProjectAdapter:
+        return PostgreSQLProjectAdapter(session_factory=self.db_session_factory)
+
+    @property
+    def sprint_repo(self) -> PostgreSQLSprintAdapter:
+        return PostgreSQLSprintAdapter(session_factory=self.db_session_factory)
 
     @property
     def estimate_task_use_case(self) -> EstimateTaskUseCase:

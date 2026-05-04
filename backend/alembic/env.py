@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# TODO: import your SQLAlchemy Base.metadata once ORM models are defined
-# from src.adapters.secondary.persistence.models import Base
+# Add backend/ to sys.path so imports from src.* work when running alembic
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.adapters.secondary.persistence.models import Base  # noqa: E402
+from src.infrastructure.config.settings import settings  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None  # TODO: replace with Base.metadata
+# Set URL from application settings — overrides any value in alembic.ini
+config.set_main_option("sqlalchemy.url", settings.database_url)
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
