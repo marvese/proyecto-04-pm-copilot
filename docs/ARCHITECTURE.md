@@ -1,8 +1,8 @@
 # Arquitectura Técnica — PM Copilot
 
-**Versión**: 0.1  
-**Estado**: Draft  
-**Fecha**: 2026-04-24  
+**Versión**: 0.2  
+**Estado**: Active  
+**Fecha**: 2026-05-01  
 
 ---
 

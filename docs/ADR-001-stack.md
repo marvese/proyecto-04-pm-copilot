@@ -49,7 +49,7 @@ PM Copilot es un proyecto de desarrollo en solitario con apoyo de IA que debe eq
 - Fácil de ejecutar localmente con Docker para desarrollo
 - API Python sencilla con buen soporte para metadata filtering
 - Desplegable en Railway como contenedor
-- Suficiente para la escala prevista (< 100k documentos en MVP)
+- Suficiente para la escala prevista (menos de 100k documentos en MVP)
 
 ### Embeddings: nomic-embed-text via Ollama
 
