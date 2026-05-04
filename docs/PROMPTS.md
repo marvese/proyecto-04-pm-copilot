@@ -1,7 +1,7 @@
 # Biblioteca de Prompts — PM Copilot
 
-**Versión**: 0.11  
-**Fecha**: 2026-05-01  
+**Versión**: 0.12  
+**Fecha**: 2026-05-04  
 
 ---
 
@@ -1054,6 +1054,73 @@ Usa `requests` y `python-dotenv`. Añade las dependencias a `requirements-script
 - Reutilizable en: cualquier proyecto que necesite backlog inicial en Jira. Cambiar el diccionario `BACKLOG` y las constantes `PROJECT_KEY`/`PROJECT_NAME`.
 - Variación sugerida: añadir estimación de story points a cada historia en el diccionario `BACKLOG` y pasarla al campo `story_points` en la creación.
 - No usar cuando: el proyecto Jira ya tiene issues — la búsqueda por título exacto protege contra duplicados, pero renombrar historias y re-ejecutar sí crearía duplicados.
+
+### 7.2 Épica de Integraciones Externas — JiraAdapter, ConfluenceAdapter, GitHubAdapter, SyncJiraUseCase (PMCP-32/33/34/35/36)
+
+**Fecha**: 2026-05-04  
+**Modelo**: claude-sonnet-4-6  
+**Resultado**: Implementación completa de los tres adaptadores de integración con Circuit Breaker (tenacity) y el caso de uso de sincronización bidireccional Jira. 37 tests unitarios con mocks HTTP.  
+**Ficheros generados/afectados**: `adapters/secondary/integrations/jira_adapter.py`, `adapters/secondary/integrations/confluence_adapter.py`, `adapters/secondary/integrations/github_adapter.py`, `application/use_cases/sync_jira_use_case.py`, cuatro ficheros de test unitario.
+
+**Prompt**:
+
+```
+Continuamos con la épica PMCP-32.
+
+Implementa los siguientes módulos en arquitectura hexagonal (hexagonal estricto: dominio no importa infraestructura):
+
+PMCP-33 — JiraAdapter (backend/src/adapters/secondary/integrations/jira_adapter.py):
+- Hereda de JiraPort
+- Constructor recibe base_url, email, api_token; instancia httpx.AsyncClient con BasicAuth
+- Métodos: get_issue(jira_key), create_issue(project_key, fields) -> str (retorna key),
+  update_issue(jira_key, fields), list_issues(project_key, jql_filter, max_results),
+  health_check() -> bool (GET /myself, timeout 5s, bare try/except)
+- Circuit Breaker: todos los métodos excepto health_check con @tenacity retry
+  (3 intentos, exponential backoff, reraise=True, retry_if_exception_type(httpx.HTTPError))
+
+PMCP-34 — ConfluenceAdapter (adapters/secondary/integrations/confluence_adapter.py):
+- Hereda de ConfluencePort
+- Mismos métodos que el script scripts/confluence_client.py pero async (httpx)
+- Incluir la función markdown_to_storage() del script, portada directamente al adapter
+- Métodos: get_page(page_id), create_page(space_key, title, content, parent_id=None) -> str,
+  update_page(page_id, title, content, version) [auto-incrementa version+1],
+  list_pages(space_key, limit), get_page_content(page_id) -> str,
+  health_check() -> bool (GET /space, timeout 5s)
+
+PMCP-35 — GitHubAdapter (adapters/secondary/integrations/github_adapter.py):
+- Hereda de GitHubPort
+- Bearer token, Accept: application/vnd.github+json, X-GitHub-Api-Version: 2022-11-28
+- Métodos: list_pull_requests(repo, state), get_pull_request(repo, pr_number),
+  list_issues(repo, state), get_file_content(repo, path, ref) [decodifica base64],
+  health_check() -> bool (GET /user, timeout 5s)
+- Tenacity en todos los métodos excepto health_check
+
+PMCP-36 — SyncJiraUseCase (application/use_cases/sync_jira_use_case.py):
+- Constructor: task_repo: TaskRepositoryPort, jira_port: JiraPort
+- execute(project_id, jira_project_key) -> SyncJiraResult:
+  (1) pending = await task_repo.list_pending_jira_sync(project_id)
+  (2) para cada task: create_issue si jira_key is None, update_issue si tiene key
+  (3) en éxito: task.jira_sync_status=SYNCED, task.jira_key=key si nueva
+  (4) en excepción: task.jira_sync_status=FAILED; continuar con la siguiente task
+  (5) await task_repo.save(task) en ambos casos
+  (6) return SyncJiraResult(pushed_count, pulled_count=0, conflict_count=0, failed_count)
+- sync_single(task_id, jira_project_key): fetch + lógica individual
+- SyncJiraResult: dataclass con pushed_count, pulled_count, conflict_count, failed_count
+- Helper _task_to_jira_fields(task) -> dict[str, Any]: mapea Task a campos Jira
+  (summary, description ADF, issuetype, priority)
+
+Añade también tests unitarios para los 4 módulos usando AsyncMock y unittest.mock.patch
+para mockear httpx.AsyncClient. Sin llamadas reales a APIs.
+```
+
+**Notas**:
+- El patrón `def _jira_retry(fn): return retry(...)(fn)` como decorator de módulo funciona correctamente con tenacity en métodos async — tenacity detecta coroutines automáticamente.
+- `health_check()` no debe usar tenacity: es una probe que debe fallar rápido; un `try/except Exception: return False` es el patrón correcto.
+- La función `markdown_to_storage()` no tiene dependencias externas — puede copiarse directamente en el adaptador en lugar de crear una dependencia circular hacia `scripts/`.
+- Para mockear el context manager `httpx.AsyncClient`, usar `AsyncMock` en `__aenter__` y `__aexit__` por separado, y `patch.object(adapter, "_client", return_value=mock_client)`.
+- `SyncJiraUseCase.execute()` necesita `jira_project_key` además de `project_id` — el stub original solo tenía `project_id`. Esta extensión es necesaria para que `create_issue()` sepa en qué proyecto de Jira crear.
+- Reutilizable en: cualquier proyecto que integre con Jira/Confluence/GitHub usando httpx + tenacity.
+- No usar cuando: el proyecto use la librería `atlassian-python-api` en lugar de httpx directo.
 
 ---
 

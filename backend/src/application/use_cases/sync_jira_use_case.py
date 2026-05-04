@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from ...domain.entities.task import JiraSyncStatus, Task
 from ...domain.ports.jira_port import JiraPort
@@ -16,7 +17,7 @@ class SyncJiraResult:
     failed_count: int
 
 
-def _task_to_jira_fields(task: Task) -> dict:
+def _task_to_jira_fields(task: Task) -> dict[str, Any]:
     """Map domain Task fields to Jira issue fields."""
     priority_map = {
         "low": "Low",
