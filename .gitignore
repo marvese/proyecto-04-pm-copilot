@@ -1,5 +1,6 @@
 # Secrets
 .env
+.env.local
 
 # Python
 __pycache__/
@@ -11,3 +12,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Node
+node_modules/
+frontend/dist/
