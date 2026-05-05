@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: up down db-init db-reset db-shell logs tools-up tools-down ps verify migrate migrate-down help
+.PHONY: up down db-init db-reset db-shell logs tools-up tools-down ps verify migrate migrate-down sync-docs sync-jira sync-all help
 
 # Lee .env si existe (para variables en targets que las necesiten)
 -include .env
@@ -66,8 +66,19 @@ tools-down: ## Para pgAdmin
 	docker compose --profile tools down
 
 # ─────────────────────────────────────────
-# Ayuda
+# Sincronización de documentación
 # ─────────────────────────────────────────
+
+sync-docs: ## Sube docs/pending/confluence/*.md a Confluence y los mueve a docs/published/
+	python3 scripts/sync_confluence.py
+
+sync-jira: ## Procesa docs/pending/jira/update-tasks.json y actualiza estados en Jira
+	python3 scripts/sync_jira_status.py
+
+sync-all: sync-docs sync-jira ## Sincroniza documentación y estados Jira en un solo paso
+
+# ─────────────────────────────────────────
+# Ayuda
 # ─────────────────────────────────────────
 
 help: ## Muestra esta ayuda

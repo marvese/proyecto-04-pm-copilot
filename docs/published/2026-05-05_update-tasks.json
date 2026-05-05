@@ -1,0 +1,47 @@
+[
+  {
+    "key": "PMCP-6",
+    "status": "Listo",
+    "comment": "Épica LLM Core completada: ClaudeAdapter (streaming + json_mode), LLMRouter con fallback tenacity, OllamaLLMAdapter. 14 tests unitarios, 98% cobertura. Mergeada a develop."
+  },
+  {
+    "key": "PMCP-11",
+    "status": "Listo",
+    "comment": "Épica EstimateTask completada: EstimationService (Fibonacci snap + RAG similar chunks), EstimateTaskUseCase, endpoints POST /api/v1/estimate y /breakdown. 12 tests unitarios. Mergeada a develop."
+  },
+  {
+    "key": "PMCP-16",
+    "status": "Listo",
+    "comment": "Épica Chat con streaming completada: QueryProjectStatusUseCase, WebSocket handler con RAG context, useCopilotChat hook, componentes ChatWindow/MessageBubble/ChatInput. Mergeada a develop."
+  },
+  {
+    "key": "PMCP-26",
+    "status": "Listo",
+    "comment": "Tests de integración RAG completados: test_chromadb_adapter.py en tests/integration/adapters/. Suite total al completar épica: 78 passed, 3 skipped."
+  },
+  {
+    "key": "PMCP-37",
+    "status": "Listo",
+    "comment": "Épica Frontend React/PWA completada: SPA completa con routing, dashboard métricas, CRUD tareas, chat, reportes con descarga Markdown. PWA con Workbox NetworkFirst. ESLint limpio, TypeScript strict, 29 tests Vitest. Mergeada a develop y master."
+  },
+  {
+    "key": "PMCP-38",
+    "status": "Listo",
+    "comment": "Dashboard implementado: componentes SprintOverview (puntos, días, progreso) y VelocityChart (recharts). Conectado a projectService.getStatus()."
+  },
+  {
+    "key": "PMCP-39",
+    "status": "Listo",
+    "comment": "TasksPage implementada: lista con filtro por estado, TaskCard con acciones inline, formulario de creación en panel lateral, useTasks hook con CRUD completo."
+  },
+  {
+    "key": "PMCP-40",
+    "status": "Listo",
+    "comment": "ReportsPage implementada: botones Informe de sprint / Estado del proyecto / Transcribir notas, descarga de informe como .md con Blob, gráficos recharts."
+  },
+  {
+    "key": "PMCP-41",
+    "status": "Listo",
+    "comment": "PWA configurada: vite-plugin-pwa con Workbox, estrategia NetworkFirst para /api/* (caché 5 min), manifest.json con iconos 192×192 y 512×512, service worker autoUpdate."
+  }
+]
