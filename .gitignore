@@ -16,3 +16,6 @@ htmlcov/
 # Node
 node_modules/
 frontend/dist/
+
+# Windows metadata (WSL2)
+*.Zone.Identifier

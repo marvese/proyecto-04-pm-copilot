@@ -38,9 +38,31 @@ Al inicio de cada nueva sesión de Claude Code en este proyecto.
 
 2. Ejecuta: git add . && git commit -m "feat/fix/docs: descripción breve"
 
-3. Pregunta al usuario si quiere:
-   - Actualizar Confluence: python3 scripts/confluence_client.py
-   - Actualizar Jira con métricas reales: python3 scripts/update_jira.py
+3. Si hay cambios de documentación, genera los ficheros pendientes:
+   - Crea docs/pending/confluence/NOMBRE.md con frontmatter opcional:
+     ```
+     ---
+     parent: "08. Documentación Técnica del Proyecto"
+     title: "Título en Confluence"
+     ---
+     (contenido del documento)
+     ```
+   - Crea docs/pending/jira/update-tasks.json si hay tareas que marcar:
+     ```json
+     [{"key": "PMCP-XX", "status": "Done", "comment": "Descripción breve"}]
+     ```
 
-4. Actualizar los promts si se ha ejecutado algún prompt relevante:
+4. Recuerda al usuario: "Ejecuta **make sync-all** al cerrar la sesión
+   para sincronizar la documentación con Confluence y Jira."
+
+5. Actualizar los prompts si se ha ejecutado algún prompt relevante:
    - Registra el prompt utilizado en docs/PROMPTS.md
+
+## División de responsabilidades — NO usar Claude Code para:
+- Actualizar Confluence → usar Claude.ai (chat) o `python3 scripts/sync_confluence.py`
+- Marcar tareas Done en Jira → UI de Jira o `python3 scripts/update_jira.py`
+- Planificación y board review → UI de Jira
+- Publicar PROMPTS.md → `python3 scripts/publish_prompts.py`
+- Generar contenido para Jira/Confluence → Claude.ai directamente
+
+Reservar el contexto de esta sesión para: implementación, tests, commits y gestión Git.

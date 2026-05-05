@@ -1173,3 +1173,97 @@ Cuando un prompt produce un resultado significativo:
 3. Documentar: fecha, modelo, resultado, ficheros afectados, notas
 4. Si el prompt tiene variaciones que funcionan mejor: documéntarlas en "Notas"
 5. Si el prompt falló en algo: documentar la limitación para no repetir el error
+
+---
+
+## 10. Infraestructura y DevOps
+
+### Sistema de sincronización diferida de documentación
+
+**Contexto de uso:** Al implementar el sistema de docs/pending/ para desacoplar la generación de contenido de la sincronización con APIs externas.
+
+**Resultado:** `sync_confluence.py` batch + `sync_jira_status.py` + `make sync-all` + flujo integrado en `session-start.md`
+
+**Prompt utilizado:**
+
+```markdown
+# Prompt: Sistema de sincronización diferida de documentación
+
+Implementa un sistema de sincronización diferida para mantener 
+documentación técnica actualizada en Confluence y Jira sin 
+consumir contexto de LLM durante el desarrollo.
+
+## Estructura a crear
+
+docs/
+  pending/
+    confluence/   # .md pendientes de subir a Confluence
+    jira/         # update-tasks.json pendiente de sincronizar
+  published/      # ficheros procesados con timestamp YYYY-MM-DD_
+
+## Scripts a implementar
+
+### scripts/sync_confluence.py
+- Sin argumentos: procesa todos los .md de docs/pending/confluence/
+- Con argumento: sube ese fichero específico
+- Busca página en Confluence por título (nombre del fichero sin extensión)
+- Si existe: actualiza; si no: crea en el espacio configurado
+- Soporta --parent "Título de página padre"
+- Tras éxito: mueve fichero a docs/published/YYYY-MM-DD_nombre.md
+- Lee del .env: CONFLUENCE_URL, CONFLUENCE_EMAIL, 
+  CONFLUENCE_API_TOKEN, CONFLUENCE_SPACE_KEY
+
+### scripts/sync_jira_status.py
+- Lee docs/pending/jira/update-tasks.json con formato:
+  [{"key": "PROJ-X", "status": "Done", "comment": "opcional"}]
+- Actualiza estado de cada tarea en Jira via API REST
+- Tras procesar: mueve fichero a docs/published/ con timestamp
+- Lee del .env: JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN
+
+## Makefile targets
+make sync-docs  → python3 scripts/sync_confluence.py
+make sync-jira  → python3 scripts/sync_jira_status.py
+make sync-all   → sync-docs && sync-jira
+
+## Actualización del skill de sesión
+En .claude/skills/session-start.md, sección de cierre de tarea:
+- Generar contenido en docs/pending/confluence/ si hay cambios
+- Generar docs/pending/jira/update-tasks.json si hay tareas Done
+- Recordar al usuario: "Ejecuta make sync-all al cerrar la sesión"
+
+## Documentar en RUNBOOK.md
+Añadir sección "Sincronización de documentación" con:
+- Diagrama del flujo (pending → published)
+- Ejemplos de make sync-docs / sync-jira / sync-all
+- Formato del frontmatter YAML para ficheros Confluence
+- Formato del JSON para actualizaciones Jira
+- Comportamiento ante errores parciales
+
+## Flujo de trabajo resultante
+Durante la sesión (Claude Code, cero tokens de API externa):
+  → Claude Code genera ficheros en docs/pending/
+
+Al cerrar la sesión (terminal, sin LLM):
+  → make sync-all sincroniza todo
+
+Dependencias Python: requests, python-dotenv
+Añadir a requirements-scripts.txt
+```
+
+**Modelo:** claude-sonnet-4-6 | **Fecha:** 2026-05-05
+
+**Ficheros generados/modificados:**
+- `scripts/sync_confluence.py` — reescrito con soporte batch, frontmatter YAML, dry-run, move a published/
+- `scripts/sync_jira_status.py` — creado; obtiene transiciones dinámicamente, añade comentario opcional
+- `docs/pending/confluence/` — directorio creado con `.gitkeep`
+- `docs/pending/jira/` — directorio creado con `.gitkeep`
+- `docs/published/` — directorio creado con `.gitkeep`
+- `Makefile` — targets `sync-docs`, `sync-jira`, `sync-all` añadidos
+- `.claude/skills/session-start.md` — sección de cierre actualizada
+- `docs/RUNBOOK.md` — sección "Sincronización de documentación" añadida
+
+**Notas:**
+- El frontmatter YAML en los ficheros pending permite especificar `parent` y `title` para la página Confluence sin pasar argumentos CLI
+- El estado Done en Jira Cloud puede ser "Listo", "Done" o "Finalizada" según la instancia — el script obtiene las transiciones disponibles dinámicamente via la API para evitar hardcodear IDs
+- Si alguna tarea Jira falla, el fichero JSON no se mueve a published/ para permitir reintento
+- El dry-run (`--dry-run`) valida la configuración y los títulos sin llamar a ninguna API
