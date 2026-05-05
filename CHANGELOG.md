@@ -8,6 +8,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **PMCP-37 (Épica Frontend React/PWA)**: SPA completa funcional — routing con React Router (`/dashboard`, `/tasks`, `/chat`, `/reports`), nav bar con selector de proyecto, `useProjectContext` hook conectado a `projectService.listProjects()`, `useTasks` hook con CRUD completo (`createTask`, `updateTask`, `deleteTask`)
+- **PMCP-37**: `DashboardPage` — muestra métricas reales del sprint activo vía `projectService.getStatus()`; componentes `SprintOverview` (puntos completados/restantes/totales, días restantes, barra de progreso) y `VelocityChart` (gráfico de barras con `recharts`)
+- **PMCP-37**: `TasksPage` — lista de tareas con filtro por estado; formulario de creación en panel lateral; `TaskCard` con acciones inline de edición y borrado; `TaskList` con paginación y estado vacío
+- **PMCP-37**: `ReportsPage` — vista de reportes de velocidad y distribución de tareas por estado, con gráficos `recharts` (BarChart + PieChart)
+- **PMCP-37**: Servicios API reales: `projectService` (`listProjects`, `getStatus`, `getById`), `taskService` (`list`, `create`, `update`, `delete`), `reportService` (`getVelocity`, `getTaskDistribution`)
+- **PMCP-37**: PWA production-ready — `vite-plugin-pwa` con Workbox, estrategia `NetworkFirst` para `/api/*` con caché de 5 min, `manifest.json` actualizado, iconos 192×192 y 512×512; proxy Vite `/api → localhost:8000` en desarrollo
+- **PMCP-37**: `src/vite-env.d.ts` con referencia `vite/client` para tipado de `import.meta.env`
+
+---
 - Estructura completa de directorios del proyecto (backend + frontend)
 - **Backend — Dominio**: entidades (`Task`, `Sprint`, `Project`, `Estimation`, `Report`, `KnowledgeChunk`), 10 puertos abstractos (`LLMPort`, `EmbeddingPort`, `VectorStorePort`, `TaskRepositoryPort`, `ProjectRepositoryPort`, `SprintRepositoryPort`, `JiraPort`, `ConfluencePort`, `GitHubPort`, `DocumentGeneratorPort`), 3 domain services (`EstimationService`, `PlanningService`, `RAGService`)
 - **Backend — Application**: 9 use cases stub (`EstimateTaskUseCase`, `CreateTaskUseCase`, `UpdateTaskUseCase`, `PlanSprintUseCase`, `GenerateReportUseCase`, `QueryProjectStatusUseCase`, `IndexDocumentsUseCase`, `SyncJiraUseCase`, `QueryKnowledgeUseCase`) + 4 commands/DTOs

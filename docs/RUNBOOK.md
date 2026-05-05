@@ -124,6 +124,38 @@ python3 -m pytest tests/unit/infrastructure/test_llm_router.py -v
 
 ---
 
+## Desarrollo del Frontend
+
+```bash
+# Servidor de desarrollo (con HMR y proxy /api → localhost:8000)
+cd frontend && npm run dev
+# Frontend: http://localhost:5173
+
+# Verificar tipos TypeScript (sin emitir)
+cd frontend && npm run typecheck
+
+# Lint
+cd frontend && npm run lint
+
+# Build de producción
+cd frontend && npm run build
+
+# Preview del build (sirve dist/ en localhost:4173)
+cd frontend && npm run preview
+```
+
+### Variables de entorno del frontend
+
+Crea `frontend/.env.local` si el backend no está en el puerto por defecto:
+
+```env
+VITE_API_URL=http://localhost:8000
+```
+
+Sin esta variable, `chatService` usa `http://localhost:8080` como fallback. El proxy de Vite (`/api → localhost:8000`) está activo durante desarrollo sin necesidad de esta variable para los demás servicios.
+
+---
+
 ## Actualizar Confluence
 
 ```bash

@@ -27,3 +27,12 @@ export interface CreateProjectRequest {
   confluence_space_key?: string;
   github_repo?: string;
 }
+
+export interface ProjectStatusResult {
+  active_sprint_name: string | null;
+  completed_points: number;
+  remaining_points: number;
+  total_points: number;
+  days_remaining: number | null;
+  blocked_task_count: number;
+}
