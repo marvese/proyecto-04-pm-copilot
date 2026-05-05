@@ -25,6 +25,7 @@ from ..application.use_cases.estimate_task_use_case import EstimateTaskUseCase
 from ..application.use_cases.create_task_use_case import CreateTaskUseCase
 from ..application.use_cases.query_knowledge_use_case import QueryKnowledgeUseCase
 from ..application.use_cases.index_documents_use_case import IndexDocumentsUseCase
+from ..application.use_cases.query_project_status_use_case import QueryProjectStatusUseCase
 
 
 class Container:
@@ -153,6 +154,13 @@ class Container:
         return QueryKnowledgeUseCase(
             llm_port=self.llm_router,
             rag_service=self.rag_service,
+        )
+
+    @property
+    def query_project_status_use_case(self) -> QueryProjectStatusUseCase:
+        return QueryProjectStatusUseCase(
+            task_repo=self.task_repo,
+            sprint_repo=self.sprint_repo,
         )
 
 
