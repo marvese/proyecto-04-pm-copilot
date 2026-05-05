@@ -1,8 +1,8 @@
 # Arquitectura Técnica — PM Copilot
 
-**Versión**: 0.2  
+**Versión**: 0.3  
 **Estado**: Active  
-**Fecha**: 2026-05-01  
+**Fecha**: 2026-05-05  
 
 ---
 
@@ -163,7 +163,39 @@ LLMRouter
 
 Ver `docs/ADR-005-llm-router.md` para la lógica de routing.
 
-### 3.6 RAG Engine
+### 3.6 Frontend (React PWA)
+
+SPA construida con React 18 + TypeScript + Vite, desplegada en Vercel. Estructura interna por capas:
+
+```
+frontend/src/
+├── pages/          # Páginas de nivel superior (una por ruta)
+│   ├── DashboardPage   — métricas del sprint activo (SprintOverview + VelocityChart)
+│   ├── TasksPage       — CRUD de tareas con filtros y formulario inline
+│   ├── ReportsPage     — reportes de velocidad y distribución (recharts)
+│   └── ChatPage        — interfaz de chat con streaming WebSocket
+├── components/     # Componentes reutilizables
+│   ├── dashboard/  — SprintOverview, VelocityChart
+│   ├── tasks/      — TaskCard, TaskList
+│   ├── chat/       — ChatWindow, MessageBubble, ChatInput
+│   └── ui/         — Button, LoadingSpinner
+├── hooks/          # Estado y lógica de negocio UI
+│   ├── useProjectContext — carga lista de proyectos; expone proyecto activo
+│   ├── useTasks         — CRUD de tareas con estado optimista
+│   ├── useCopilotChat   — sesión de chat + streaming WebSocket
+│   └── useEstimation    — stub (PMCP-13 pendiente de conectar al UI)
+├── services/       # Clientes HTTP al backend
+│   ├── projectService   — GET /api/v1/projects, /api/v1/projects/:id/status
+│   ├── taskService      — CRUD /api/v1/tasks
+│   ├── reportService    — GET /api/v1/reports/velocity, /distribution
+│   ├── chatService      — sesiones + WebSocket /api/v1/chat
+│   └── estimationService — stub hasta conectar UI de estimación
+└── types/          # Interfaces TypeScript (Task, Project, Sprint, Chat, Estimation)
+```
+
+**PWA**: `vite-plugin-pwa` + Workbox; estrategia `NetworkFirst` para rutas `/api/*` con caché de 5 min; `autoUpdate` para service worker. Proxy de desarrollo: `/api → http://localhost:8000`.
+
+### 3.7 RAG Engine
 
 Pipeline de recuperación y generación aumentada:
 

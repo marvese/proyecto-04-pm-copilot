@@ -77,6 +77,14 @@ npm install
 cd ..
 ```
 
+`npm install` descarga todas las dependencias, incluidos `vite-plugin-pwa` y `recharts`. El proxy de desarrollo está preconfigurado en `vite.config.ts`: cualquier petición a `/api` se redirige a `http://localhost:8000`.
+
+Variable de entorno opcional del frontend (`.env` o `.env.local` dentro de `frontend/`):
+
+```env
+VITE_API_URL=http://localhost:8000   # URL base del backend (por defecto http://localhost:8080)
+```
+
 ## 6. Verificar instalación completa
 
 ```bash
@@ -115,7 +123,17 @@ ollama list
 # Debe aparecer: llama3.2, nomic-embed-text
 ```
 
-## 8. pgAdmin (opcional)
+## 8. Build de producción del frontend
+
+```bash
+cd frontend
+npm run build    # genera dist/ optimizado con PWA (service worker + manifest)
+npm run preview  # sirve dist/ localmente en http://localhost:4173
+```
+
+El build incluye chunking automático de Vite y el service worker de Workbox para capacidades offline.
+
+## 10. pgAdmin (opcional)
 
 Para inspeccionar la base de datos via UI:
 
