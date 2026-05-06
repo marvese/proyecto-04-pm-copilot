@@ -23,6 +23,7 @@ from ..adapters.secondary.persistence.postgresql_project_adapter import (
 )
 from ..adapters.secondary.persistence.postgresql_user_adapter import PostgreSQLUserAdapter
 from ..adapters.secondary.persistence.postgresql_chat_adapter import PostgreSQLChatAdapter
+from ..adapters.secondary.persistence.llm_usage_adapter import LLMUsageAdapter
 from ..domain.services.rag_service import RAGService
 from ..application.use_cases.estimate_task_use_case import EstimateTaskUseCase
 from ..application.use_cases.create_task_use_case import CreateTaskUseCase
@@ -43,6 +44,10 @@ class Container:
         self._vector_store: ChromaDBAdapter | None = None
         self._engine: AsyncEngine | None = None
         self._session_factory: async_sessionmaker[AsyncSession] | None = None
+
+    @property
+    def llm_usage_logger(self) -> LLMUsageAdapter:
+        return LLMUsageAdapter(session_factory=self.db_session_factory)
 
     @property
     def llm_router(self) -> LLMRouter:
@@ -66,8 +71,11 @@ class Container:
                 base_url=self._cfg.ollama_base_url,
                 model=self._cfg.ollama_llm_model,
             )
+            usage_logger = self.llm_usage_logger
             self._llm_router = LLMRouter(
-                claude=claude, groq=groq, gemini=gemini, ollama=ollama, mode=self._cfg.llm_mode
+                claude=claude, groq=groq, gemini=gemini, ollama=ollama,
+                mode=self._cfg.llm_mode,
+                usage_logger=usage_logger,
             )
         return self._llm_router
 

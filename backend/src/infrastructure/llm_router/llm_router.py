@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import AsyncIterator
+import time
+from typing import TYPE_CHECKING, AsyncIterator
 
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from ...domain.ports.llm_port import LLMPort, LLMRequest, LLMResponse, LLMTaskType
 from ..config.settings import LLMMode, settings
+
+if TYPE_CHECKING:
+    from ...adapters.secondary.persistence.llm_usage_adapter import LLMUsageAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,7 @@ class LLMRouter(LLMPort):
         gemini: LLMPort | None = None,
         mode: LLMMode = settings.llm_mode,
         retry_attempts: int = 3,
+        usage_logger: LLMUsageAdapter | None = None,
     ) -> None:
         self._ollama = ollama
         self._claude = claude
@@ -40,6 +46,7 @@ class LLMRouter(LLMPort):
         self._gemini = gemini
         self._mode = mode
         self._retry_attempts = retry_attempts
+        self._usage_logger = usage_logger
 
     def _resolve_providers(self, task_type: LLMTaskType) -> list[LLMPort]:
         if self._mode == LLMMode.LOCAL:
@@ -64,14 +71,30 @@ class LLMRouter(LLMPort):
         raise last_error or RuntimeError("No LLM provider available")
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
+        t0 = time.monotonic()
+        response: LLMResponse | None = None
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(self._retry_attempts),
             wait=wait_exponential(multiplier=1, min=1, max=10),
             reraise=True,
         ):
             with attempt:
-                return await self._try_providers(request)
-        raise RuntimeError("unreachable")  # satisfies mypy
+                response = await self._try_providers(request)
+
+        assert response is not None  # tenacity reraises on failure, so this is always set
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        if self._usage_logger is not None:
+            asyncio.create_task(
+                self._usage_logger.log(
+                    provider=response.provider,
+                    model=response.model,
+                    task_type=request.task_type.value,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                    duration_ms=duration_ms,
+                )
+            )
+        return response
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[str]:
         providers = self._resolve_providers(request.task_type)
