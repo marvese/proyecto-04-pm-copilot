@@ -32,6 +32,8 @@ from ..application.use_cases.index_documents_use_case import IndexDocumentsUseCa
 from ..application.use_cases.generate_report_use_case import GenerateReportUseCase
 from ..application.use_cases.login_use_case import LoginUseCase
 from ..application.use_cases.query_project_status_use_case import QueryProjectStatusUseCase
+from ..application.use_cases.update_task_use_case import UpdateTaskUseCase
+from ..application.use_cases.sync_jira_use_case import SyncJiraUseCase
 
 
 class Container:
@@ -205,6 +207,20 @@ class Container:
             task_repo=self.task_repo,
             sprint_repo=self.sprint_repo,
         )
+
+    @property
+    def create_task_use_case(self) -> CreateTaskUseCase:
+        return CreateTaskUseCase(task_repo=self.task_repo)
+
+    @property
+    def update_task_use_case(self) -> UpdateTaskUseCase:
+        return UpdateTaskUseCase(task_repo=self.task_repo)
+
+    @property
+    def sync_jira_use_case(self) -> SyncJiraUseCase | None:
+        if self.jira is None:
+            return None
+        return SyncJiraUseCase(task_repo=self.task_repo, jira=self.jira)
 
 
 container = Container()

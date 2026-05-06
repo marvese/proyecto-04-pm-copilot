@@ -12,8 +12,17 @@ class CreateTaskUseCase:
         self._task_repo = task_repo
 
     async def execute(self, command: CreateTaskCommand) -> Task:
-        # TODO: implement
-        # 1. Build Task entity from command
-        # 2. Persist via task_repo.save()
-        # 3. Return saved task
-        raise NotImplementedError
+        task = Task(
+            id=uuid.uuid4(),
+            project_id=command.project_id,
+            title=command.title,
+            description=command.description,
+            type=command.type,
+            status=TaskStatus.BACKLOG,
+            priority=command.priority,
+            estimated_points=command.estimated_points,
+            sprint_id=command.sprint_id,
+            tags=command.tags,
+            jira_sync_status=JiraSyncStatus.LOCAL_ONLY,
+        )
+        return await self._task_repo.save(task)
