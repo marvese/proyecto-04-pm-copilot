@@ -14,7 +14,8 @@ from src.adapters.primary.api.tasks_router import (
     get_sync_jira_use_case,
 )
 from src.application.use_cases.create_task_use_case import CreateTaskUseCase
-from src.application.use_cases.update_task_use_case import UpdateTaskUseCase, UpdateTaskCommand
+from src.application.commands.update_task_command import UpdateTaskCommand
+from src.application.use_cases.update_task_use_case import UpdateTaskUseCase
 from src.application.use_cases.sync_jira_use_case import SyncJiraUseCase
 from src.domain.entities.project import Project
 from src.domain.entities.task import Task, TaskType, TaskStatus, TaskPriority, JiraSyncStatus

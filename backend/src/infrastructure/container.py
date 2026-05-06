@@ -24,6 +24,9 @@ from ..adapters.secondary.persistence.postgresql_project_adapter import (
 from ..adapters.secondary.persistence.postgresql_user_adapter import PostgreSQLUserAdapter
 from ..adapters.secondary.persistence.postgresql_chat_adapter import PostgreSQLChatAdapter
 from ..adapters.secondary.persistence.llm_usage_adapter import LLMUsageAdapter
+from ..domain.ports.task_repository_port import TaskRepositoryPort
+from ..domain.ports.project_repository_port import ProjectRepositoryPort
+from ..domain.ports.sprint_repository_port import SprintRepositoryPort
 from ..domain.services.rag_service import RAGService
 from ..application.use_cases.estimate_task_use_case import EstimateTaskUseCase
 from ..application.use_cases.create_task_use_case import CreateTaskUseCase
@@ -156,15 +159,15 @@ class Container:
         return PostgreSQLChatAdapter(session_factory=self.db_session_factory)
 
     @property
-    def task_repo(self) -> PostgreSQLTaskAdapter:
+    def task_repo(self) -> TaskRepositoryPort:
         return PostgreSQLTaskAdapter(session_factory=self.db_session_factory)
 
     @property
-    def project_repo(self) -> PostgreSQLProjectAdapter:
+    def project_repo(self) -> ProjectRepositoryPort:
         return PostgreSQLProjectAdapter(session_factory=self.db_session_factory)
 
     @property
-    def sprint_repo(self) -> PostgreSQLSprintAdapter:
+    def sprint_repo(self) -> SprintRepositoryPort:
         return PostgreSQLSprintAdapter(session_factory=self.db_session_factory)
 
     @property
@@ -220,7 +223,7 @@ class Container:
     def sync_jira_use_case(self) -> SyncJiraUseCase | None:
         if self.jira is None:
             return None
-        return SyncJiraUseCase(task_repo=self.task_repo, jira=self.jira)
+        return SyncJiraUseCase(task_repo=self.task_repo, jira_port=self.jira)
 
 
 container = Container()

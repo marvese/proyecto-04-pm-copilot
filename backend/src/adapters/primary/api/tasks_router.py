@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from ....application.commands.create_task_command import CreateTaskCommand
 from ....application.use_cases.create_task_use_case import CreateTaskUseCase
 from ....application.use_cases.sync_jira_use_case import SyncJiraUseCase
-from ....application.use_cases.update_task_use_case import UpdateTaskCommand, UpdateTaskUseCase
+from ....application.commands.update_task_command import UpdateTaskCommand
+from ....application.use_cases.update_task_use_case import UpdateTaskUseCase
 from ....domain.entities.task import Task, TaskPriority, TaskStatus, TaskType, JiraSyncStatus
 from ....domain.exceptions import DomainError
 from ....domain.ports.task_repository_port import TaskRepositoryPort

@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 import pytest
 
-from src.application.use_cases.update_task_use_case import UpdateTaskUseCase, UpdateTaskCommand
+from src.application.commands.update_task_command import UpdateTaskCommand
+from src.application.use_cases.update_task_use_case import UpdateTaskUseCase
 from src.domain.entities.task import TaskStatus, TaskPriority
 from src.domain.exceptions import DomainError
 
@@ -73,7 +74,7 @@ class TestUpdateTaskUseCase:
 
     @pytest.mark.asyncio
     async def test_updates_updated_at(self, mock_task_repo, sample_task) -> None:
-        original_updated_at = sample_task.updated_at
+        from datetime import timezone
         mock_task_repo.get_by_id.return_value = sample_task
         mock_task_repo.save.side_effect = lambda t: t
         use_case = UpdateTaskUseCase(mock_task_repo)
@@ -82,4 +83,18 @@ class TestUpdateTaskUseCase:
             UpdateTaskCommand(task_id=sample_task.id, updates={"status": TaskStatus.DONE})
         )
 
-        assert updated.updated_at >= original_updated_at
+        assert updated.updated_at.tzinfo is not None
+        assert updated.updated_at.tzinfo == timezone.utc
+
+    @pytest.mark.asyncio
+    async def test_empty_updates_does_not_raise(self, mock_task_repo, sample_task) -> None:
+        mock_task_repo.get_by_id.return_value = sample_task
+        mock_task_repo.save.side_effect = lambda t: t
+        use_case = UpdateTaskUseCase(mock_task_repo)
+
+        updated = await use_case.execute(
+            UpdateTaskCommand(task_id=sample_task.id, updates={})
+        )
+
+        assert updated.id == sample_task.id
+        mock_task_repo.save.assert_called_once()

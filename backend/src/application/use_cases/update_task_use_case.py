@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-import uuid
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timezone
 
 from ...domain.entities.task import Task
 from ...domain.exceptions import DomainError
 from ...domain.ports.task_repository_port import TaskRepositoryPort
-
-
-@dataclass
-class UpdateTaskCommand:
-    task_id: uuid.UUID
-    updates: dict[str, Any]
+from ..commands.update_task_command import UpdateTaskCommand
 
 
 class UpdateTaskUseCase:
@@ -27,5 +19,5 @@ class UpdateTaskUseCase:
         for field, value in command.updates.items():
             if hasattr(task, field):
                 setattr(task, field, value)
-        task.updated_at = datetime.utcnow()
+        task.updated_at = datetime.now(tz=timezone.utc)
         return await self._task_repo.save(task)
