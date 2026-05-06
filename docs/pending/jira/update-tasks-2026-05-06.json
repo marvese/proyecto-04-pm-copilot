@@ -1,0 +1,4 @@
+[
+  {"key": "PMCP-26", "status": "Listo", "comment": "Dominio de tareas completo: CreateTaskUseCase, UpdateTaskUseCase, UpdateTaskCommand en commands/, tasks_router con 6 endpoints (GET/POST/PATCH/DELETE + sync-jira), Container con use cases y ports abstractos, bug jira_port corregido, datetime.now(tz=timezone.utc). 27 tests nuevos. Suite: 246 passed."},
+  {"key": "PMCP-50", "status": "Listo", "comment": "Contrato de reportes alineado: ReportResponse añade confluence_page_id, reportService.ts añade sprint_id, elimina format de requests, corrige downloadUrl()."}
+]

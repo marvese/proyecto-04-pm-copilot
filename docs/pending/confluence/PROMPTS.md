@@ -1,3 +1,7 @@
+---
+title: "06. Biblioteca de Prompts"
+parent: "00. PM Copilot — Inicio"
+---
 # Biblioteca de Prompts — PM Copilot
 
 **Versión**: 0.12  

@@ -8,6 +8,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **PMCP-26**: Dominio de tareas completo — `CreateTaskUseCase` (crea Task con status BACKLOG y jira_sync_status LOCAL_ONLY), `UpdateTaskUseCase` (fetch → apply partial updates via `model_dump(exclude_unset=True)` → save, lanza `DomainError` si no existe); `UpdateTaskCommand` en `application/commands/`; `tasks_router` con DI completa para `GET/POST/GET/{id}/PATCH/DELETE/{id}` y `POST /{id}/sync-jira` (BackgroundTasks, 503 si Jira no configurado, 422 si sin `jira_project_key`); Container añade `create_task_use_case`, `update_task_use_case`, `sync_jira_use_case`; repo properties del Container devuelven puertos abstractos; bug `jira=` → `jira_port=` en `SyncJiraUseCase`; `datetime.utcnow()` → `datetime.now(tz=timezone.utc)`; 27 tests nuevos. Suite: 246 passed.
+
+### Fixed
+- **PMCP-50**: Alineación de contrato de reportes frontend/backend — `ReportResponse` añade `confluence_page_id` (ya presente en la entidad `Report`, faltaba en el schema del router); `reportService.ts`: `ReportResponse` añade `sprint_id`, elimina `format` de las requests (el backend no lo usaba), corrige `downloadUrl()` (era `/download/{format}`, ahora `/download`). Test del router de reportes añade assertion sobre `confluence_page_id` y `sprint_id`.
+
 - **PMCP-37 (Épica Frontend React/PWA)**: SPA completa funcional — routing con React Router (`/dashboard`, `/tasks`, `/chat`, `/reports`), nav bar con selector de proyecto, `useProjectContext` hook conectado a `projectService.listProjects()`, `useTasks` hook con CRUD completo (`createTask`, `updateTask`, `deleteTask`)
 - **PMCP-37**: `DashboardPage` — muestra métricas reales del sprint activo vía `projectService.getStatus()`; componentes `SprintOverview` (puntos completados/restantes/totales, días restantes, barra de progreso) y `VelocityChart` (gráfico de barras con `recharts`)
 - **PMCP-37**: `TasksPage` — lista de tareas con filtro por estado; formulario de creación en panel lateral; `TaskCard` con acciones inline de edición y borrado; `TaskList` con paginación y estado vacío
