@@ -44,6 +44,7 @@ class ReportResponse(BaseModel):
     title: str
     content: str
     sprint_id: Optional[uuid.UUID] = None
+    confluence_page_id: Optional[str] = None
 
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ async def _run(
         title=report.title,
         content=report.content,
         sprint_id=report.sprint_id,
+        confluence_page_id=report.confluence_page_id,
     )
 
 

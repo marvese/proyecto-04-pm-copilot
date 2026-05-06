@@ -48,6 +48,8 @@ class TestGenerateReport:
         assert data["type"] == "sprint_status"
         assert "content" in data
         assert "title" in data
+        assert "confluence_page_id" in data
+        assert "sprint_id" in data
 
     def test_sprint_endpoint_delegates_to_use_case(self) -> None:
         app.dependency_overrides[get_generate_report_use_case] = lambda: _mock_uc()

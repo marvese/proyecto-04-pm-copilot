@@ -1,10 +1,9 @@
-export type ReportFormat = "markdown" | "docx" | "confluence";
-
 export interface ReportResponse {
   id: string;
   type: string;
   title: string;
   content: string;
+  sprint_id: string | null;
   confluence_page_id: string | null;
 }
 
@@ -25,27 +24,19 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const reportService = {
-  async sprintReport(
-    projectId: string,
-    sprintId?: string,
-    format: ReportFormat = "markdown"
-  ): Promise<ReportResponse> {
-    return post("/sprint", { project_id: projectId, sprint_id: sprintId ?? null, format });
+  async sprintReport(projectId: string, sprintId?: string): Promise<ReportResponse> {
+    return post("/sprint", { project_id: projectId, sprint_id: sprintId ?? null });
   },
 
-  async statusReport(projectId: string, format: ReportFormat = "markdown"): Promise<ReportResponse> {
-    return post("/status", { project_id: projectId, format });
+  async statusReport(projectId: string): Promise<ReportResponse> {
+    return post("/status", { project_id: projectId });
   },
 
-  async meetingNotes(
-    projectId: string,
-    rawNotes: string,
-    format: ReportFormat = "markdown"
-  ): Promise<ReportResponse> {
-    return post("/meeting-notes", { project_id: projectId, raw_notes: rawNotes, format });
+  async meetingNotes(projectId: string, rawNotes: string): Promise<ReportResponse> {
+    return post("/meeting-notes", { project_id: projectId, raw_notes: rawNotes });
   },
 
-  downloadUrl(reportId: string, format: ReportFormat): string {
-    return `/api/v1/reports/${reportId}/download/${format}`;
+  downloadUrl(reportId: string): string {
+    return `/api/v1/reports/${reportId}/download`;
   },
 };
