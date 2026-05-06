@@ -69,6 +69,7 @@ def _mock_use_case(result: ProjectStatusResult) -> QueryProjectStatusUseCase:
 
 # ── GET /api/v1/projects ──────────────────────────────────────────────────────
 
+@pytest.mark.usefixtures("bypass_auth")
 class TestListProjects:
     def test_returns_empty_list(self) -> None:
         repo = _mock_repo(list_all_return=[])
@@ -116,6 +117,7 @@ class TestListProjects:
 
 # ── POST /api/v1/projects ─────────────────────────────────────────────────────
 
+@pytest.mark.usefixtures("bypass_auth")
 class TestCreateProject:
     def test_returns_201_with_saved_project(self) -> None:
         saved = _make_project()
@@ -173,6 +175,7 @@ class TestCreateProject:
 
 # ── GET /api/v1/projects/{id} ─────────────────────────────────────────────────
 
+@pytest.mark.usefixtures("bypass_auth")
 class TestGetProject:
     def test_returns_200_with_project(self) -> None:
         repo = _mock_repo(get_by_id_return=_make_project())
@@ -197,6 +200,7 @@ class TestGetProject:
 
 # ── GET /api/v1/projects/{id}/status ─────────────────────────────────────────
 
+@pytest.mark.usefixtures("bypass_auth")
 class TestGetProjectStatus:
     def test_returns_200_with_status_fields(self) -> None:
         result = _make_status_result()

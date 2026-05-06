@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config.settings import settings
-from ..adapters.primary.api.auth_router import router as auth_router
+from ..adapters.primary.api.auth_router import require_auth, router as auth_router
 from ..adapters.primary.api.projects_router import router as projects_router
 from ..adapters.primary.api.tasks_router import router as tasks_router
 from ..adapters.primary.api.chat_router import router as chat_router
@@ -31,15 +31,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    _auth_dep = [Depends(require_auth)]
+
     app.include_router(auth_router)
-    app.include_router(projects_router)
-    app.include_router(tasks_router)
-    app.include_router(chat_router)
-    app.include_router(estimate_router)
-    app.include_router(reports_router)
-    app.include_router(knowledge_router)
-    app.include_router(sprints_router)
-    app.include_router(ws_router)
+    app.include_router(projects_router, dependencies=_auth_dep)
+    app.include_router(tasks_router, dependencies=_auth_dep)
+    app.include_router(chat_router, dependencies=_auth_dep)
+    app.include_router(estimate_router, dependencies=_auth_dep)
+    app.include_router(reports_router, dependencies=_auth_dep)
+    app.include_router(knowledge_router, dependencies=_auth_dep)
+    app.include_router(sprints_router, dependencies=_auth_dep)
+    app.include_router(ws_router, dependencies=_auth_dep)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
