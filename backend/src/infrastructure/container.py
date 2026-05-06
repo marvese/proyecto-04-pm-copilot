@@ -22,6 +22,7 @@ from ..adapters.secondary.persistence.postgresql_project_adapter import (
     PostgreSQLSprintAdapter,
 )
 from ..adapters.secondary.persistence.postgresql_user_adapter import PostgreSQLUserAdapter
+from ..adapters.secondary.persistence.postgresql_chat_adapter import PostgreSQLChatAdapter
 from ..domain.services.rag_service import RAGService
 from ..application.use_cases.estimate_task_use_case import EstimateTaskUseCase
 from ..application.use_cases.create_task_use_case import CreateTaskUseCase
@@ -139,6 +140,10 @@ class Container:
     @property
     def login_use_case(self) -> LoginUseCase:
         return LoginUseCase(user_repo=self.user_repo, auth=self.jwt_auth)
+
+    @property
+    def chat_repo(self) -> PostgreSQLChatAdapter:
+        return PostgreSQLChatAdapter(session_factory=self.db_session_factory)
 
     @property
     def task_repo(self) -> PostgreSQLTaskAdapter:
