@@ -5,9 +5,9 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ....domain.entities.chat import ChatMessage
 from ....domain.ports.llm_port import LLMRequest, LLMTaskType
 from ....infrastructure.container import container
-from ..api.chat_router import get_pending_message, save_assistant_response
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +31,22 @@ async def chat_stream(websocket: WebSocket, message_id: uuid.UUID) -> None:
     """
     await websocket.accept()
     try:
-        # 1. Look up pending message
-        pending = get_pending_message(message_id)
-        if not pending:
+        chat_repo = container.chat_repo
+
+        # 1. Look up the pending user message
+        pending = await chat_repo.get_message(message_id)
+        if pending is None:
             await websocket.send_json({"type": "error", "detail": "message_id not found"})
             await websocket.close()
             return
 
-        user_content: str = pending["content"]
-        project_id: uuid.UUID = pending["project_id"]
+        # 2. Resolve project_id via session
+        session = await chat_repo.get_session(pending.session_id)
+        project_id: uuid.UUID = session.project_id if session else uuid.uuid4()
 
-        # 2. Build RAG context via domain service (not adapters directly)
+        user_content: str = pending.content
+
+        # 3. Build RAG context via domain service
         sources: list[dict] = []
         context_text = ""
         try:
@@ -67,7 +72,7 @@ async def chat_stream(websocket: WebSocket, message_id: uuid.UUID) -> None:
         except Exception as exc:
             logger.warning("RAG context retrieval failed: %s", exc)
 
-        # 3. Build prompt
+        # 4. Build prompt
         prompt_parts = []
         if context_text:
             prompt_parts.append(f"Project context:\n{context_text}")
@@ -82,15 +87,22 @@ async def chat_stream(websocket: WebSocket, message_id: uuid.UUID) -> None:
             temperature=0.5,
         )
 
-        # 4. Stream tokens
+        # 5. Stream tokens
         response_tokens: list[str] = []
         async for token in container.llm_router.stream(request):
             await websocket.send_json({"type": "token", "content": token})
             response_tokens.append(token)
 
-        # 5. Persist assistant response and send done
+        # 6. Persist assistant response
         full_response = "".join(response_tokens)
-        save_assistant_response(message_id, full_response)
+        await chat_repo.save_message(
+            ChatMessage(
+                id=uuid.uuid4(),
+                session_id=pending.session_id,
+                role="assistant",
+                content=full_response,
+            )
+        )
         await websocket.send_json({"type": "done", "sources": sources})
 
     except WebSocketDisconnect:

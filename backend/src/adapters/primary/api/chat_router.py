@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-# In-memory store — replaced by PostgreSQL adapter in PMCP-27
-_sessions: dict[str, dict] = {}
-_messages: dict[str, dict] = {}
+from ....domain.entities.chat import ChatMessage, ChatSession
+from ....domain.ports.chat_repository_port import ChatRepositoryPort
+from ....infrastructure.container import container
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
+
+# ── Schemas ───────────────────────────────────────────────────────────────────
 
 class CreateSessionRequest(BaseModel):
     project_id: uuid.UUID
@@ -33,7 +35,7 @@ class MessageResponse(BaseModel):
     stream_url: str
 
 
-class ChatMessage(BaseModel):
+class ChatMessageResponse(BaseModel):
     id: uuid.UUID
     session_id: uuid.UUID
     role: str
@@ -41,82 +43,73 @@ class ChatMessage(BaseModel):
     created_at: datetime
 
 
+# ── Dependencies ──────────────────────────────────────────────────────────────
+
+def get_chat_repo() -> ChatRepositoryPort:
+    return container.chat_repo
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
 @router.post("/sessions", response_model=SessionResponse, status_code=201)
-async def create_session(body: CreateSessionRequest) -> SessionResponse:
-    session_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    _sessions[str(session_id)] = {
-        "id": session_id,
-        "project_id": body.project_id,
-        "created_at": now,
-    }
-    return SessionResponse(id=session_id, project_id=body.project_id, created_at=now)
+async def create_session(
+    body: CreateSessionRequest,
+    repo: Annotated[ChatRepositoryPort, Depends(get_chat_repo)],
+) -> SessionResponse:
+    session = await repo.create_session(
+        ChatSession(id=uuid.uuid4(), project_id=body.project_id)
+    )
+    return SessionResponse(id=session.id, project_id=session.project_id, created_at=session.created_at)
 
 
 @router.get("/sessions", response_model=list[SessionResponse])
-async def list_sessions(project_id: Optional[uuid.UUID] = None) -> list[SessionResponse]:
-    sessions = list(_sessions.values())
-    if project_id:
-        sessions = [s for s in sessions if s["project_id"] == project_id]
-    return [SessionResponse(**s) for s in sessions]
+async def list_sessions(
+    repo: Annotated[ChatRepositoryPort, Depends(get_chat_repo)],
+    project_id: Optional[uuid.UUID] = None,
+) -> list[SessionResponse]:
+    sessions = await repo.list_sessions(project_id=project_id)
+    return [SessionResponse(id=s.id, project_id=s.project_id, created_at=s.created_at) for s in sessions]
 
 
 @router.post("/sessions/{session_id}/messages", response_model=MessageResponse)
-async def send_message(session_id: uuid.UUID, body: SendMessageRequest) -> MessageResponse:
-    if str(session_id) not in _sessions:
+async def send_message(
+    session_id: uuid.UUID,
+    body: SendMessageRequest,
+    repo: Annotated[ChatRepositoryPort, Depends(get_chat_repo)],
+) -> MessageResponse:
+    session = await repo.get_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
     message_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    session = _sessions[str(session_id)]
-
-    _messages[str(message_id)] = {
-        "id": message_id,
-        "session_id": session_id,
-        "project_id": session["project_id"],
-        "role": "user",
-        "content": body.content,
-        "created_at": now,
-        "response": None,
-    }
+    await repo.save_message(
+        ChatMessage(
+            id=message_id,
+            session_id=session_id,
+            role="user",
+            content=body.content,
+        )
+    )
     return MessageResponse(
         message_id=message_id,
         stream_url=f"/api/v1/chat/stream/{message_id}",
     )
 
 
-@router.get("/sessions/{session_id}/messages", response_model=list[ChatMessage])
-async def get_session_messages(session_id: uuid.UUID) -> list[ChatMessage]:
-    if str(session_id) not in _sessions:
+@router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageResponse])
+async def get_session_messages(
+    session_id: uuid.UUID,
+    repo: Annotated[ChatRepositoryPort, Depends(get_chat_repo)],
+) -> list[ChatMessageResponse]:
+    session = await repo.get_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    msgs = [
-        m for m in _messages.values()
-        if m["session_id"] == session_id
-    ]
+
+    messages = await repo.list_messages(session_id)
     return [
-        ChatMessage(
-            id=m["id"], session_id=m["session_id"],
-            role=m["role"], content=m["content"], created_at=m["created_at"],
+        ChatMessageResponse(
+            id=m.id, session_id=m.session_id,
+            role=m.role, content=m.content, created_at=m.created_at,
         )
-        for m in msgs
+        for m in messages
     ]
-
-
-def get_pending_message(message_id: uuid.UUID) -> Optional[dict]:
-    return _messages.get(str(message_id))
-
-
-def save_assistant_response(message_id: uuid.UUID, content: str) -> None:
-    if str(message_id) in _messages:
-        pending = _messages[str(message_id)]
-        session_id = pending["session_id"]
-        assistant_id = uuid.uuid4()
-        _messages[str(assistant_id)] = {
-            "id": assistant_id,
-            "session_id": session_id,
-            "project_id": pending["project_id"],
-            "role": "assistant",
-            "content": content,
-            "created_at": datetime.now(timezone.utc),
-            "response": None,
-        }

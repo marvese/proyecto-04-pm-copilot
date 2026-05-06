@@ -55,5 +55,10 @@ class Settings(BaseSettings):
     # GitHub
     github_token: Optional[str] = None
 
+    # JWT
+    jwt_algorithm: str = "HS256"
+    jwt_access_expire_minutes: int = 60
+    jwt_refresh_expire_days: int = 7
+
 
 settings = Settings()

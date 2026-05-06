@@ -15,16 +15,22 @@ from ..adapters.secondary.vector_store.chromadb_adapter import ChromaDBAdapter
 from ..adapters.secondary.integrations.confluence_adapter import ConfluenceAdapter
 from ..adapters.secondary.integrations.jira_adapter import JiraAdapter
 from ..adapters.secondary.integrations.github_adapter import GitHubAdapter
+from ..adapters.secondary.auth.jwt_auth_adapter import JWTAuthAdapter
 from ..adapters.secondary.persistence.postgresql_task_adapter import PostgreSQLTaskAdapter
 from ..adapters.secondary.persistence.postgresql_project_adapter import (
     PostgreSQLProjectAdapter,
     PostgreSQLSprintAdapter,
 )
+from ..adapters.secondary.persistence.postgresql_user_adapter import PostgreSQLUserAdapter
+from ..adapters.secondary.persistence.postgresql_chat_adapter import PostgreSQLChatAdapter
+from ..adapters.secondary.persistence.llm_usage_adapter import LLMUsageAdapter
 from ..domain.services.rag_service import RAGService
 from ..application.use_cases.estimate_task_use_case import EstimateTaskUseCase
 from ..application.use_cases.create_task_use_case import CreateTaskUseCase
 from ..application.use_cases.query_knowledge_use_case import QueryKnowledgeUseCase
 from ..application.use_cases.index_documents_use_case import IndexDocumentsUseCase
+from ..application.use_cases.generate_report_use_case import GenerateReportUseCase
+from ..application.use_cases.login_use_case import LoginUseCase
 from ..application.use_cases.query_project_status_use_case import QueryProjectStatusUseCase
 
 
@@ -38,6 +44,10 @@ class Container:
         self._vector_store: ChromaDBAdapter | None = None
         self._engine: AsyncEngine | None = None
         self._session_factory: async_sessionmaker[AsyncSession] | None = None
+
+    @property
+    def llm_usage_logger(self) -> LLMUsageAdapter:
+        return LLMUsageAdapter(session_factory=self.db_session_factory)
 
     @property
     def llm_router(self) -> LLMRouter:
@@ -61,8 +71,11 @@ class Container:
                 base_url=self._cfg.ollama_base_url,
                 model=self._cfg.ollama_llm_model,
             )
+            usage_logger = self.llm_usage_logger
             self._llm_router = LLMRouter(
-                claude=claude, groq=groq, gemini=gemini, ollama=ollama, mode=self._cfg.llm_mode
+                claude=claude, groq=groq, gemini=gemini, ollama=ollama,
+                mode=self._cfg.llm_mode,
+                usage_logger=usage_logger,
             )
         return self._llm_router
 
@@ -120,6 +133,27 @@ class Container:
         return self._session_factory
 
     @property
+    def jwt_auth(self) -> JWTAuthAdapter:
+        return JWTAuthAdapter(
+            secret=self._cfg.secret_key,
+            algorithm=self._cfg.jwt_algorithm,
+            access_expire_minutes=self._cfg.jwt_access_expire_minutes,
+            refresh_expire_days=self._cfg.jwt_refresh_expire_days,
+        )
+
+    @property
+    def user_repo(self) -> PostgreSQLUserAdapter:
+        return PostgreSQLUserAdapter(session_factory=self.db_session_factory)
+
+    @property
+    def login_use_case(self) -> LoginUseCase:
+        return LoginUseCase(user_repo=self.user_repo, auth=self.jwt_auth)
+
+    @property
+    def chat_repo(self) -> PostgreSQLChatAdapter:
+        return PostgreSQLChatAdapter(session_factory=self.db_session_factory)
+
+    @property
     def task_repo(self) -> PostgreSQLTaskAdapter:
         return PostgreSQLTaskAdapter(session_factory=self.db_session_factory)
 
@@ -154,6 +188,15 @@ class Container:
         return QueryKnowledgeUseCase(
             llm_port=self.llm_router,
             rag_service=self.rag_service,
+        )
+
+    @property
+    def generate_report_use_case(self) -> GenerateReportUseCase:
+        return GenerateReportUseCase(
+            llm_port=self.llm_router,
+            task_repo=self.task_repo,
+            sprint_repo=self.sprint_repo,
+            project_repo=self.project_repo,
         )
 
     @property

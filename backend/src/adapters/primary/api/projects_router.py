@@ -10,6 +10,8 @@ from ....application.use_cases.query_project_status_use_case import (
     QueryProjectStatusUseCase,
     ProjectStatusResult,
 )
+from ....domain.entities.project import Project
+from ....domain.ports.project_repository_port import ProjectRepositoryPort
 from ....infrastructure.container import container
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -45,36 +47,72 @@ class ProjectStatusResponse(BaseModel):
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 
+def get_project_repo() -> ProjectRepositoryPort:
+    return container.project_repo
+
+
 def get_query_status_use_case() -> QueryProjectStatusUseCase:
     return container.query_project_status_use_case
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _to_response(project: Project) -> ProjectResponse:
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        jira_project_key=project.jira_project_key,
+        confluence_space_key=project.confluence_space_key,
+        github_repo=project.github_repo,
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[ProjectResponse])
-async def list_projects() -> list[ProjectResponse]:
-    # TODO: implement — PMCP-48
-    raise NotImplementedError
+async def list_projects(
+    repo: Annotated[ProjectRepositoryPort, Depends(get_project_repo)],
+) -> list[ProjectResponse]:
+    projects = await repo.list_all()
+    return [_to_response(p) for p in projects]
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
-async def create_project(body: CreateProjectRequest) -> ProjectResponse:
-    # TODO: implement — PMCP-48
-    raise NotImplementedError
+async def create_project(
+    body: CreateProjectRequest,
+    repo: Annotated[ProjectRepositoryPort, Depends(get_project_repo)],
+) -> ProjectResponse:
+    project = Project(
+        id=uuid.uuid4(),
+        name=body.name,
+        description=body.description,
+        jira_project_key=body.jira_project_key,
+        confluence_space_key=body.confluence_space_key,
+        github_repo=body.github_repo,
+    )
+    saved = await repo.save(project)
+    return _to_response(saved)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: uuid.UUID) -> ProjectResponse:
-    # TODO: implement — PMCP-48
-    raise NotImplementedError
+async def get_project(
+    project_id: uuid.UUID,
+    repo: Annotated[ProjectRepositoryPort, Depends(get_project_repo)],
+) -> ProjectResponse:
+    project = await repo.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _to_response(project)
 
 
 @router.get("/{project_id}/status", response_model=ProjectStatusResponse)
 async def get_project_status(
     project_id: uuid.UUID,
+    repo: Annotated[ProjectRepositoryPort, Depends(get_project_repo)],
     use_case: Annotated[QueryProjectStatusUseCase, Depends(get_query_status_use_case)],
 ) -> ProjectStatusResponse:
-    project = await container.project_repo.get_by_id(project_id)
+    project = await repo.get_by_id(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
