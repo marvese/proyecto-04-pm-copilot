@@ -1,0 +1,3 @@
+[
+  {"key": "PMCP-50", "status": "Listo", "comment": "GenerateReportUseCase implementado: contexto proyecto/sprint/tareas desde DB, prompts tipados (sprint_summary, project_status, meeting_notes), LLM GENERATION_LONG, fallback Markdown en caso de fallo. POST /api/v1/reports/generate + /sprint + /status + /meeting-notes via Depends(). 16 tests unitarios. 203 passed en suite completa."}
+]
