@@ -28,11 +28,30 @@ def _escape_cdata(text: str) -> str:
 
 
 def _inline(text: str) -> str:
-    """Formato inline: negrita, cursiva, código, enlaces."""
+    """Formato inline: negrita, cursiva, código, enlaces.
+
+    Los code spans se extraen primero con placeholders para que `*` dentro
+    de backticks no sea capturado erróneamente por los regex de bold/italic.
+    """
+    # 1. Guardar code spans con placeholders para proteger su contenido
+    code_spans: list[str] = []
+
+    def _save_code(m: re.Match) -> str:  # type: ignore[type-arg]
+        idx = len(code_spans)
+        code_spans.append(f"<code>{m.group(1)}</code>")
+        return f"\x00CODE{idx}\x00"
+
+    text = re.sub(r"`([^`\n]+)`", _save_code, text)
+
+    # 2. Aplicar bold/italic/enlaces sobre el texto sin code spans
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"\*([^*\n]+?)\*", r"<em>\1</em>", text)
-    text = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", text)
     text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+
+    # 3. Restaurar code spans
+    for i, span in enumerate(code_spans):
+        text = text.replace(f"\x00CODE{i}\x00", span)
+
     return text
 
 
@@ -52,7 +71,7 @@ def markdown_to_storage(md: str) -> str:
 
     def flush_list() -> None:
         if list_items:
-            inner = "\n".join(f"<li>{item}</li>" for item in list_items)
+            inner = "\n".join(f"<li><p>{item}</p></li>" for item in list_items)
             result.append(f"<ul>\n{inner}\n</ul>")
             list_items.clear()
 
@@ -68,7 +87,7 @@ def markdown_to_storage(md: str) -> str:
                 continue  # fila separadora
             tag = "th" if not header_done else "td"
             parts.append(
-                "<tr>" + "".join(f"<{tag}>{_inline(c)}</{tag}>" for c in cells) + "</tr>"
+                "<tr>" + "".join(f"<{tag}><p>{_inline(c)}</p></{tag}>" for c in cells) + "</tr>"
             )
             header_done = True
         parts.append("</tbody></table>")
